@@ -5,14 +5,18 @@ import pytest
 
 HARNESSCTL = (Path(__file__).parent.parent
               / "plugins/harness-installer/skills/configure-harness/generator/harnessctl.py")
-PINS = json.loads((HARNESSCTL.parent / "pins.json").read_text())
+PINS = json.loads((HARNESSCTL.parent / "pins.json").read_text(encoding="utf-8"))
 
 def run(home_dir, *args, env_extra=None):
     env = dict(os.environ, HOME=str(home_dir))
+    if sys.platform == "win32":
+        env["USERPROFILE"] = str(home_dir)
+        env["LOCALAPPDATA"] = str(home_dir)
     if env_extra:
         env.update(env_extra)
     return subprocess.run([sys.executable, str(HARNESSCTL), *args],
-                          capture_output=True, text=True, env=env)
+                          capture_output=True, text=True, env=env,
+                          encoding="utf-8", errors="replace")
 
 STUB = "#!/bin/bash\necho stub-ok\n"
 MANIFEST = {
@@ -41,7 +45,7 @@ def _make_repo(base, name, files, tag):
     for rel, content in files.items():
         p = d / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(content)
+        p.write_text(content, encoding="utf-8")
         if rel.endswith(".sh"):
             p.chmod(0o755)
     _git(d, "init", "-q", "-b", "main")
@@ -86,34 +90,52 @@ def fetched(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     return base
 
+# Windows에서 preflight는 --work-dir 대상의 git 레포 여부도 검사한다(ADR-0005 결정 8).
+# tmp_path는 기본적으로 git 레포가 아니므로 Windows 테스트는 먼저 init한다.
+def _win_preflight_repo(tmp_path):
+    _git(tmp_path, "init", "-q", "-b", "main")
+    return ["--work-dir", str(tmp_path)]
+
 def test_preflight_fails_on_bare_env(tmp_path):
     # tmp HOME 에는 discord 플러그인 캐시가 없다 → 최소 1개 FAIL → exit 1
-    r = run(tmp_path, "preflight")
+    extra = _win_preflight_repo(tmp_path) if sys.platform == "win32" else []
+    r = run(tmp_path, "preflight", *extra)
     assert r.returncode == 1
     assert "[FAIL]" in r.stdout and "discord 플러그인" in r.stdout
 
 def test_preflight_reports_tools(tmp_path):
     r = run(tmp_path, "preflight")
-    assert "[OK] git" in r.stdout and "tmux" in r.stdout and "claude" in r.stdout
+    session_tool = "orca" if sys.platform == "win32" else "tmux"
+    assert "[OK] git" in r.stdout and session_tool in r.stdout and "claude" in r.stdout
 
 def test_preflight_ok_when_all_present(tmp_path):
     (tmp_path / ".claude/plugins/cache/claude-plugins-official/discord").mkdir(parents=True)
-    r = run(tmp_path, "preflight")
-    # 개발 머신 전제: git/tmux/node/bun/claude/codex 는 PATH 에 있다
+    extra = _win_preflight_repo(tmp_path) if sys.platform == "win32" else []
+    r = run(tmp_path, "preflight", *extra)
+    # 개발 머신 전제: git/orca(또는 tmux)/pwsh/node/bun/claude/codex 는 PATH 에 있다
     assert r.returncode == 0, r.stdout + r.stderr
 
 def test_preflight_fails_without_bun(tmp_path):
     # discord 플러그인 MCP 실행기(bun) 부재는 8단계가 아니라 1단계에서 잡혀야 한다
     (tmp_path / ".claude/plugins/cache/claude-plugins-official/discord").mkdir(parents=True)
     bun_dir = os.path.dirname(shutil.which("bun"))
-    path = ":".join(p for p in os.environ["PATH"].split(":") if p != bun_dir)
-    r = run(tmp_path, "preflight", env_extra={"PATH": path})
+    path = os.pathsep.join(p for p in os.environ["PATH"].split(os.pathsep) if p != bun_dir)
+    extra = _win_preflight_repo(tmp_path) if sys.platform == "win32" else []
+    r = run(tmp_path, "preflight", *extra, env_extra={"PATH": path})
     assert r.returncode == 1
-    assert "[FAIL] bun" in r.stdout and "bun.sh/install" in r.stdout
+    assert "[FAIL] bun" in r.stdout and "bun.sh" in r.stdout
+
+def test_preflight_win_fails_on_non_git_dir(tmp_path):
+    if sys.platform != "win32":
+        pytest.skip("Windows 전용 검사(ADR-0005 결정 8)")
+    (tmp_path / ".claude/plugins/cache/claude-plugins-official/discord").mkdir(parents=True)
+    r = run(tmp_path, "preflight", "--work-dir", str(tmp_path))
+    assert r.returncode == 1
+    assert "[FAIL] git 레포 아님" in r.stdout
 
 def test_fetch_checks_out_pin_and_records(tmp_path):
     fetched(tmp_path)
-    st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text())
+    st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text(encoding="utf-8"))
     for name in ("discord-multiagent", "codex-discord", "usage-coach"):
         assert (tmp_path / ".local/share/discord-harness/repos" / name / ".git").exists()
         assert st["repos"][name]["ref"] == PINS["repos"][name]
@@ -152,7 +174,7 @@ def test_plugins_failure_prints_manual_fallback(tmp_path):
 
 def _token_files(work):
     for role in ("orch", "claude", "codex", "gemini"):
-        (work / f".bot-token-{role}").write_text(f"tok-{role}\n")
+        (work / f".bot-token-{role}").write_text(f"tok-{role}\n", encoding="utf-8")
 
 def _pair(tmp_path, work, *extra):
     return run(tmp_path, "pair", "--work-dir", str(work),
@@ -164,15 +186,25 @@ def test_pair_assembles_env_and_state_dirs(tmp_path):
     _token_files(work)
     r = _pair(tmp_path, work)
     assert r.returncode == 0, r.stderr
-    env = (work / ".env").read_text()
+    env = (work / ".env").read_text(encoding="utf-8")
     assert "WORK_CHANNEL_ID=111\n" in env and "CHAT_CHANNEL_ID=222\n" in env
     assert "APPROVER_USER_ID=999\n" in env and "ORCH_BOT_TOKEN=tok-orch\n" in env
     assert "CLAUDE_BOT_TOKEN=tok-claude\n" in env and "GEMINI_BOT_TOKEN=tok-gemini\n" in env
-    assert oct((work / ".env").stat().st_mode)[-3:] == "600"
-    orch = json.loads((work / ".discord-state/access.json").read_text())
+    if sys.platform == "win32":
+        # chmod는 Windows에서 무시된다(스파이크 실측) — icacls 상속 제거 + 현재
+        # 사용자 단독 허용(ADR 결정 10)을 icacls 출력으로 직접 확인한다. 상속분(I)
+        # 없이 사용자 1인만 남아야 한다.
+        icacls = subprocess.run(["icacls", str(work / ".env")], capture_output=True, text=True)
+        user = os.environ.get("USERNAME", "")
+        acl_lines = [l for l in icacls.stdout.splitlines() if ":(" in l]
+        assert len(acl_lines) == 1 and user in acl_lines[0] and "(F)" in acl_lines[0], icacls.stdout
+        assert "(I)" not in acl_lines[0]
+    else:
+        assert oct((work / ".env").stat().st_mode)[-3:] == "600"
+    orch = json.loads((work / ".discord-state/access.json").read_text(encoding="utf-8"))
     assert orch["groups"]["111"]["requireMention"] is False
-    assert (work / ".discord-state/.env").read_text() == "DISCORD_BOT_TOKEN=tok-orch\n"
-    chat = json.loads((work / "chat/.discord-state/access.json").read_text())
+    assert (work / ".discord-state/.env").read_text(encoding="utf-8") == "DISCORD_BOT_TOKEN=tok-orch\n"
+    chat = json.loads((work / "chat/.discord-state/access.json").read_text(encoding="utf-8"))
     assert chat["groups"]["222"]["requireMention"] is True
     assert (work / "chat/.discord-state/inbox").is_dir()
     for role in ("orch", "claude", "codex", "gemini"):
@@ -186,29 +218,29 @@ def test_pair_refuses_overwrite_without_force(tmp_path):
     _token_files(work)
     r = _pair(tmp_path, work)
     assert r.returncode != 0
-    assert "tok-orch" in (work / ".env").read_text()   # 기존 보존
+    assert "tok-orch" in (work / ".env").read_text(encoding="utf-8")   # 기존 보존
     _token_files(work)
     assert _pair(tmp_path, work, "--force").returncode == 0
 
 def test_pair_webhook_file(tmp_path):
     work = tmp_path / "work"; work.mkdir()
     _token_files(work)
-    wf = work / ".webhook-url"; wf.write_text("https://example.invalid/hook\n")
+    wf = work / ".webhook-url"; wf.write_text("https://example.invalid/hook\n", encoding="utf-8")
     r = _pair(tmp_path, work, "--webhook-url-file", str(wf))
     assert r.returncode == 0, r.stderr
-    cfg = json.loads((tmp_path / ".config/usage-coach/discord.json").read_text())
+    cfg = json.loads((tmp_path / ".config/usage-coach/discord.json").read_text(encoding="utf-8"))
     assert cfg["webhook_url"] == "https://example.invalid/hook"
     assert not wf.exists()
     # 대시보드 "봇 세션" 카드가 이 설치를 가리켜야 한다 (기본값 = 저자 프로덕션 경로)
-    repos = str(tmp_path / ".local/share/discord-harness/repos/codex-discord")
-    assert cfg["bridges"][0]["dir"] == f"{repos}/data"
-    assert cfg["bridges"][1]["env"] == f"{repos}/.env.gemini"
+    repos = tmp_path / ".local/share/discord-harness/repos/codex-discord"
+    assert cfg["bridges"][0]["dir"] == str(repos / "data")
+    assert cfg["bridges"][1]["env"] == str(repos / ".env.gemini")
     assert cfg["claude_bots"][0]["cwd"] == str(work)
     assert cfg["claude_bots"][1]["cwd"] == str(work / "chat")
 
 def test_pair_missing_token_file_names_it(tmp_path):
     work = tmp_path / "work"; work.mkdir()
-    (work / ".bot-token-orch").write_text("t\n")
+    (work / ".bot-token-orch").write_text("t\n", encoding="utf-8")
     r = _pair(tmp_path, work)
     assert r.returncode != 0 and ".bot-token-claude" in r.stderr
 
@@ -220,11 +252,11 @@ def test_overlay_copies_manifest_files(tmp_path):
     work = tmp_path / "work"; work.mkdir()
     r = _overlay(tmp_path, work)
     assert r.returncode == 0, r.stdout + r.stderr
-    assert (work / "scripts/bot-up.sh").read_text() == STUB
+    assert (work / "scripts/bot-up.sh").read_text(encoding="utf-8") == STUB
     assert os.access(work / "scripts/bot-up.sh", os.X_OK)
     assert (work / ".env.example").exists()
     assert (work / "chat/CLAUDE.md").exists()               # seed
-    st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text())
+    st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text(encoding="utf-8"))
     assert "scripts/bot-up.sh" in st["overlay"]
     assert len(st["overlay"]["scripts/bot-up.sh"]) == 64    # sha256 기록
 
@@ -232,54 +264,54 @@ def test_overlay_claude_block_and_mcp_merge_nondestructive(tmp_path):
     fetched(tmp_path)
     work = tmp_path / "work"; work.mkdir()
     original = "# 내 규칙\n\n소중한 내용.\n"
-    (work / "CLAUDE.md").write_text(original)
-    (work / ".mcp.json").write_text(json.dumps({"mcpServers": {"mine": {"command": "x"}}}))
-    (work / "SESSION.md").write_text("세션 기록\n")
+    (work / "CLAUDE.md").write_text(original, encoding="utf-8")
+    (work / ".mcp.json").write_text(json.dumps({"mcpServers": {"mine": {"command": "x"}}}), encoding="utf-8")
+    (work / "SESSION.md").write_text("세션 기록\n", encoding="utf-8")
     r = _overlay(tmp_path, work)
     assert r.returncode == 0, r.stdout + r.stderr
-    text = (work / "CLAUDE.md").read_text()
+    text = (work / "CLAUDE.md").read_text(encoding="utf-8")
     assert original in text and "<!-- discord-multiagent:start -->" in text
-    mcp = json.loads((work / ".mcp.json").read_text())
+    mcp = json.loads((work / ".mcp.json").read_text(encoding="utf-8"))
     assert "mine" in mcp["mcpServers"] and "codex" in mcp["mcpServers"]
-    assert (work / "SESSION.md").read_text() == "세션 기록\n"   # SESSION.md 무접촉
-    st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text())
+    assert (work / "SESSION.md").read_text(encoding="utf-8") == "세션 기록\n"   # SESSION.md 무접촉
+    st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text(encoding="utf-8"))
     assert st["mcp_added"] == ["codex"]
     r2 = _overlay(tmp_path, work)                               # 멱등
     assert r2.returncode == 0
-    assert (work / "CLAUDE.md").read_text() == text
+    assert (work / "CLAUDE.md").read_text(encoding="utf-8") == text
 
 def test_overlay_seed_preserves_user_edit(tmp_path):
     fetched(tmp_path)
     work = tmp_path / "work"; work.mkdir()
     _overlay(tmp_path, work)
-    (work / "chat/CLAUDE.md").write_text("사용자 수정본\n")
+    (work / "chat/CLAUDE.md").write_text("사용자 수정본\n", encoding="utf-8")
     _overlay(tmp_path, work)
-    assert (work / "chat/CLAUDE.md").read_text() == "사용자 수정본\n"
+    assert (work / "chat/CLAUDE.md").read_text(encoding="utf-8") == "사용자 수정본\n"
 
 def test_overlay_append_lines_merges_gitignore_and_reverts_on_remove(tmp_path):
     fetched(tmp_path)
     work = tmp_path / "work"; work.mkdir()
     original = "node_modules/\n"
-    (work / ".gitignore").write_text(original)
+    (work / ".gitignore").write_text(original, encoding="utf-8")
     r = _overlay(tmp_path, work)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "오버레이(줄 추가): " in r.stdout and ".gitignore += 5줄" in r.stdout
-    text = (work / ".gitignore").read_text()
+    text = (work / ".gitignore").read_text(encoding="utf-8")
     assert text.startswith(original)
     for line in ("# discord 하네스 비밀 — 커밋 금지 (harness-installer overlay)",
                  ".env", ".discord-state/", ".bot-token-*", ".webhook-url"):
         assert line in text.splitlines()
-    st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text())
+    st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text(encoding="utf-8"))
     assert st["lines_added"][".gitignore"] == [
         "# discord 하네스 비밀 — 커밋 금지 (harness-installer overlay)",
         ".env", ".discord-state/", ".bot-token-*", ".webhook-url"]
     r2 = _overlay(tmp_path, work)                               # 멱등
     assert r2.returncode == 0
-    assert (work / ".gitignore").read_text() == text
+    assert (work / ".gitignore").read_text(encoding="utf-8") == text
     assert "오버레이(줄 추가): " not in r2.stdout
     r3 = run(tmp_path, "remove", "--work-dir", str(work))
     assert r3.returncode == 0, r3.stdout + r3.stderr
-    assert (work / ".gitignore").read_text() == original
+    assert (work / ".gitignore").read_text(encoding="utf-8") == original
 
 def test_overlay_writes_bot_settings_with_merge(tmp_path):
     # 무인 봇 전제: discord reply·MCP 서버 사전 승인이 오케·수다 양쪽에 기록된다
@@ -287,11 +319,11 @@ def test_overlay_writes_bot_settings_with_merge(tmp_path):
     work = tmp_path / "work"; work.mkdir()
     user_settings = {"permissions": {"allow": ["Bash(ls:*)"]}}
     (work / ".claude").mkdir()
-    (work / ".claude/settings.local.json").write_text(json.dumps(user_settings))
+    (work / ".claude/settings.local.json").write_text(json.dumps(user_settings), encoding="utf-8")
     r = _overlay(tmp_path, work)
     assert r.returncode == 0, r.stdout + r.stderr
     for rel in (".claude/settings.local.json", "chat/.claude/settings.local.json"):
-        cfg = json.loads((work / rel).read_text())
+        cfg = json.loads((work / rel).read_text(encoding="utf-8"))
         assert cfg["enableAllProjectMcpServers"] is True
         assert "mcp__plugin_discord_discord" in cfg["permissions"]["allow"]
         assert "mcp__plugin_discord_discord__reply" in cfg["permissions"]["allow"]
@@ -304,9 +336,9 @@ def test_overlay_writes_bot_settings_with_merge(tmp_path):
         # 무효 실측, 0.1.8 철회) — 설정 파일엔 주입하지 않는다
         assert "defaultMode" not in cfg["permissions"]
     # 기존 사용자 항목 보존(병합)
-    orch = json.loads((work / ".claude/settings.local.json").read_text())
+    orch = json.loads((work / ".claude/settings.local.json").read_text(encoding="utf-8"))
     assert "Bash(ls:*)" in orch["permissions"]["allow"]
-    st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text())
+    st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text(encoding="utf-8"))
     assert st["settings_added"][".claude/settings.local.json"]["created"] is False
     assert st["settings_added"]["chat/.claude/settings.local.json"]["created"] is True
 
@@ -315,14 +347,14 @@ def test_remove_reverts_bot_settings(tmp_path):
     work = tmp_path / "work"; work.mkdir()
     (work / ".claude").mkdir()
     (work / ".claude/settings.local.json").write_text(
-        json.dumps({"permissions": {"allow": ["Bash(ls:*)"]}}))
+        json.dumps({"permissions": {"allow": ["Bash(ls:*)"]}}), encoding="utf-8")
     assert _overlay(tmp_path, work).returncode == 0
     _token_files(work)
     assert _pair(tmp_path, work).returncode == 0
     r = run(tmp_path, "remove", "--work-dir", str(work))
     assert r.returncode == 0, r.stdout + r.stderr
     # 사용자 파일: 설치기 추가분만 회수, 사용자 항목 보존
-    orch = json.loads((work / ".claude/settings.local.json").read_text())
+    orch = json.loads((work / ".claude/settings.local.json").read_text(encoding="utf-8"))
     assert orch["permissions"]["allow"] == ["Bash(ls:*)"]
     assert "enableAllProjectMcpServers" not in orch
     assert "statusLine" not in orch                  # 설치기 주입분 회수
@@ -333,7 +365,7 @@ def test_remove_reverts_bot_settings(tmp_path):
 def test_remove_keeps_state_on_warn_then_resumes(tmp_path):
     # 부분 실패 시 state 를 보존해야 2차 remove 가 이어서 제거할 수 있다
     base, work = _installed(tmp_path)
-    (work / "scripts/post-as.sh").write_text("#!/bin/bash\n# 사용자 수정\n")
+    (work / "scripts/post-as.sh").write_text("#!/bin/bash\n# 사용자 수정\n", encoding="utf-8")
     r = run(tmp_path, "remove", "--work-dir", str(work))
     assert r.returncode == 0
     assert "재실행하면 이어서" in r.stdout
@@ -364,10 +396,16 @@ def test_delegate_dry_run_prints_commands_only(tmp_path):
             "--dashboard", "--autostart", "--dry-run")
     assert r.returncode == 0, r.stdout + r.stderr
     repos = tmp_path / ".local/share/discord-harness/repos"
-    assert f"위임(dry-run): (cd {repos}/codex-discord)" in r.stdout
-    assert "codex-discord/scripts/install.sh" in r.stdout
-    assert "usage-coach/scripts/install.sh" in r.stdout
-    assert "scripts/install-autostart.sh" in r.stdout
+    assert f"위임(dry-run): (cd {repos / 'codex-discord'})" in r.stdout
+    assert os.sep.join(("codex-discord", "scripts", "install.sh")) in r.stdout
+    assert os.sep.join(("usage-coach", "scripts", "install.sh")) in r.stdout
+    if sys.platform == "win32":
+        # Windows 자동 기동은 아직 미구현(ADR-0002/0003) — SKIP으로 보고하고 macOS
+        # 전용 install-autostart.sh는 아예 호출하지 않는다
+        assert "[SKIP]" in r.stdout and "Windows 자동 기동 미구현" in r.stdout
+        assert "install-autostart.sh" not in r.stdout
+    else:
+        assert os.sep.join(("scripts", "install-autostart.sh")) in r.stdout
     assert not (tmp_path / "Library/LaunchAgents/com.discord-harness.chat-claude.plist").exists()
 
 def test_delegate_assembles_bridge_envs(tmp_path):
@@ -375,27 +413,31 @@ def test_delegate_assembles_bridge_envs(tmp_path):
     r = run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate", "--dry-run")
     assert r.returncode == 0, r.stdout + r.stderr
     bridge = tmp_path / ".local/share/discord-harness/repos/codex-discord"
-    env = (bridge / ".env").read_text()
+    env = (bridge / ".env").read_text(encoding="utf-8")
     assert "DISCORD_TOKEN=tok-codex" in env and "ALLOWED_USER_IDS=999" in env
     # 작업 폴더는 봇별 분리 — 정본 실측(codex/gemini-discord-workspace). 공유 폴더는
     # 동시 파일 작업 충돌 위험 + "chat/=수다 클로드 전용" 결정 위반 (2026-08-05 정정)
-    assert f"CODEX_WORKDIR={work}/codex-discord-workspace" in env and "CHANNEL_IDS=222" in env
+    assert f"CODEX_WORKDIR={work / 'codex-discord-workspace'}" in env and "CHANNEL_IDS=222" in env
     assert "TRIGGER_NAME=코덱스" in env
     # 코덱스는 프로덕션 실측과 동일하게 TUI 모드 — tmux 세션이 보여야 한다
     assert "TUI_PANE=codex-live:0.0" in env and "TUI_CHANNEL_ID=222" in env
-    gem = (bridge / ".env.gemini").read_text()
+    gem = (bridge / ".env.gemini").read_text(encoding="utf-8")
     assert "DISCORD_TOKEN=tok-gemini" in gem and "ENGINE=agy" in gem
-    assert f"CODEX_WORKDIR={work}/gemini-discord-workspace" in gem
+    assert f"CODEX_WORKDIR={work / 'gemini-discord-workspace'}" in gem
     assert "DATA_DIR=data-gemini" in gem and "TRIGGER_NAME=제미나이" in gem
     assert (work / "codex-discord-workspace").is_dir()
     assert (work / "gemini-discord-workspace").is_dir()
-    assert oct((bridge / ".env").stat().st_mode)[-3:] == "600"
+    if sys.platform != "win32":
+        assert oct((bridge / ".env").stat().st_mode)[-3:] == "600"
     # 멱등 — 재실행해도 기존 .env 보존
-    (bridge / ".env").write_text("DISCORD_TOKEN=user-edited\n")
+    (bridge / ".env").write_text("DISCORD_TOKEN=user-edited\n", encoding="utf-8")
     run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate", "--dry-run")
-    assert (bridge / ".env").read_text() == "DISCORD_TOKEN=user-edited\n"
+    assert (bridge / ".env").read_text(encoding="utf-8") == "DISCORD_TOKEN=user-edited\n"
 
 def test_delegate_real_run_writes_chat_plist(tmp_path):
+    if sys.platform == "win32":
+        pytest.skip("Windows autostart는 bots.json+schtasks 경로(ADR-0002/0003) — "
+                    "bot_win.py autostart-install 구현 후 별도 테스트로 대체 예정, 미구현")
     base, work = _installed(tmp_path)
     r = run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate", "--autostart")
     assert r.returncode == 0, r.stdout + r.stderr   # fixture 위임 스크립트 = echo stub
@@ -433,13 +475,20 @@ def _rollout(tmp_path, cwd):
     (d / "rollout-2026-08-05T12-00-00-aaaaaaaa-1111-2222-3333-444444444444.jsonl").write_text(
         json.dumps({"type": "session_meta",
                     "payload": {"session_id": "aaaaaaaa-1111-2222-3333-444444444444",
-                                "cwd": str(cwd)}}) + "\n")
+                                "cwd": str(cwd)}}) + "\n", encoding="utf-8")
+
+def _mcp_log_dir(tmp_path, workdir):
+    if sys.platform == "win32":
+        # S2 확정(docs/spikes) — Windows는 %LOCALAPPDATA%/claude-cli-nodejs/Cache/<맹글링>
+        mangled = re.sub(r"[\\/:.]", "-", str(workdir))
+        return tmp_path / "claude-cli-nodejs/Cache" / mangled / "mcp-logs-plugin-discord-discord"
+    mangled = re.sub(r"[/.]", "-", str(workdir))
+    return tmp_path / "Library/Caches/claude-cli-nodejs" / mangled / "mcp-logs-plugin-discord-discord"
 
 def _mcp_log(tmp_path, workdir, line):
-    mangled = re.sub(r"[/.]", "-", str(workdir))
-    d = tmp_path / "Library/Caches/claude-cli-nodejs" / mangled / "mcp-logs-plugin-discord-discord"
+    d = _mcp_log_dir(tmp_path, workdir)
     d.mkdir(parents=True, exist_ok=True)
-    (d / "2026-08-04.jsonl").write_text(json.dumps({"msg": line}) + "\n")
+    (d / "2026-08-04.jsonl").write_text(json.dumps({"msg": line}) + "\n", encoding="utf-8")
 
 def test_verify_ok_with_fixture_logs(tmp_path):
     base, work = _installed(tmp_path)
@@ -449,10 +498,10 @@ def test_verify_ok_with_fixture_logs(tmp_path):
     _mcp_log(tmp_path, work / "chat", "Successfully connected to Discord")
     _rollout(tmp_path, work / "codex-discord-workspace")
     (bridge / "logs").mkdir(exist_ok=True)
-    (bridge / "logs/daemon.log").write_text("로그인: codex#1 / 엔진 codex\n")
-    (bridge / "logs/daemon-gemini.log").write_text("로그인: gem#1 / 엔진 agy\n")
+    (bridge / "logs/daemon.log").write_text("로그인: codex#1 / 엔진 codex\n", encoding="utf-8")
+    (bridge / "logs/daemon-gemini.log").write_text("로그인: gem#1 / 엔진 agy\n", encoding="utf-8")
     (bridge / "data").mkdir(exist_ok=True)
-    (bridge / "data/daemon.pid").write_text(str(os.getpid()))
+    (bridge / "data/daemon.pid").write_text(str(os.getpid()), encoding="utf-8")
     r = run(tmp_path, "verify", "--work-dir", str(work), "--skip-webhook", "--wait", "5",
             env_extra=_live_bots_seams())
     assert r.returncode == 0, r.stdout + r.stderr
@@ -468,9 +517,9 @@ def test_verify_webhook_probe_sends_user_agent(tmp_path):
     _mcp_log(tmp_path, work / "chat", "Successfully connected to Discord")
     bridge = tmp_path / ".local/share/discord-harness/repos/codex-discord"
     (bridge / "logs").mkdir(exist_ok=True)
-    (bridge / "logs/daemon.log").write_text("로그인: codex#1 / 엔진 codex\n")
+    (bridge / "logs/daemon.log").write_text("로그인: codex#1 / 엔진 codex\n", encoding="utf-8")
     (bridge / "data").mkdir(exist_ok=True)
-    (bridge / "data/daemon.pid").write_text(str(os.getpid()))
+    (bridge / "data/daemon.pid").write_text(str(os.getpid()), encoding="utf-8")
     seen = {}
     class Probe(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -483,7 +532,7 @@ def test_verify_webhook_probe_sends_user_agent(tmp_path):
     cfg = tmp_path / ".config/usage-coach"
     cfg.mkdir(parents=True, exist_ok=True)
     (cfg / "discord.json").write_text(json.dumps(
-        {"webhook_url": f"http://127.0.0.1:{srv.server_port}/hook"}))
+        {"webhook_url": f"http://127.0.0.1:{srv.server_port}/hook"}), encoding="utf-8")
     try:
         r = run(tmp_path, "verify", "--work-dir", str(work), env_extra=_live_bots_seams())
     finally:
@@ -503,8 +552,7 @@ def test_verify_fails_on_stale_mcp_log(tmp_path):
     # 합격으로 오판되면 안 된다 (2026-08-05 실측)
     base, work = _installed(tmp_path)
     _mcp_log(tmp_path, work, "Successfully connected to Discord")
-    log_dir = (tmp_path / "Library/Caches/claude-cli-nodejs"
-               / re.sub(r"[/.]", "-", str(work)) / "mcp-logs-plugin-discord-discord")
+    log_dir = _mcp_log_dir(tmp_path, work)
     old = next(log_dir.glob("*.jsonl"))
     os.utime(old, (1000000, 1000000))            # 설치 이전으로 되돌림
     r = run(tmp_path, "verify", "--work-dir", str(work), "--skip-webhook")
@@ -576,9 +624,9 @@ def test_verify_wait_polls_until_timeout(tmp_path):
 def test_doctor_warns_on_pin_mismatch(tmp_path):
     fetched(tmp_path)
     sp = tmp_path / ".config/discord-harness/state.json"
-    st = json.loads(sp.read_text())
+    st = json.loads(sp.read_text(encoding="utf-8"))
     st["repos"]["usage-coach"]["ref"] = "v9.9.9"
-    sp.write_text(json.dumps(st))
+    sp.write_text(json.dumps(st), encoding="utf-8")
     r = run(tmp_path, "doctor")
     assert "[WARN]" in r.stdout and "usage-coach" in r.stdout and "v9.9.9" in r.stdout
 
@@ -591,8 +639,8 @@ def test_doctor_warns_on_missing_contract_file(tmp_path):
 def test_doctor_fails_on_manifest_schema_mismatch(tmp_path):
     fetched(tmp_path)
     mp = tmp_path / ".local/share/discord-harness/repos/discord-multiagent/install/overlay-manifest.json"
-    mf = json.loads(mp.read_text()); mf["schema_version"] = 99
-    mp.write_text(json.dumps(mf))
+    mf = json.loads(mp.read_text(encoding="utf-8")); mf["schema_version"] = 99
+    mp.write_text(json.dumps(mf), encoding="utf-8")
     r = run(tmp_path, "doctor")
     assert r.returncode == 1 and "schema_version" in r.stdout
 
@@ -609,9 +657,9 @@ def test_remove_diff_zero_and_preserves_user_data(tmp_path):
     work2 = tmp_path / "work2"; work2.mkdir()
     orig_md = "# 내 규칙\n\n소중한 내용.\n"
     orig_mcp = json.dumps({"mcpServers": {"mine": {"command": "x"}}}, indent=2) + "\n"
-    (work2 / "CLAUDE.md").write_text(orig_md)
-    (work2 / ".mcp.json").write_text(orig_mcp)
-    (work2 / "SESSION.md").write_text("세션\n")
+    (work2 / "CLAUDE.md").write_text(orig_md, encoding="utf-8")
+    (work2 / ".mcp.json").write_text(orig_mcp, encoding="utf-8")
+    (work2 / "SESSION.md").write_text("세션\n", encoding="utf-8")
     assert _overlay(tmp_path, work2).returncode == 0
     _token_files(work2)
     assert _pair(tmp_path, work2).returncode == 0
@@ -620,10 +668,10 @@ def test_remove_diff_zero_and_preserves_user_data(tmp_path):
     r = run(tmp_path, "remove", "--work-dir", str(work2))
     assert r.returncode == 0, r.stdout + r.stderr
     # diff 0: 설치 전 존재하던 파일은 원문 동일
-    assert (work2 / "CLAUDE.md").read_text() == orig_md
-    mcp = json.loads((work2 / ".mcp.json").read_text())
+    assert (work2 / "CLAUDE.md").read_text(encoding="utf-8") == orig_md
+    mcp = json.loads((work2 / ".mcp.json").read_text(encoding="utf-8"))
     assert "mine" in mcp["mcpServers"] and "codex" not in mcp["mcpServers"]
-    assert (work2 / "SESSION.md").read_text() == "세션\n"
+    assert (work2 / "SESSION.md").read_text(encoding="utf-8") == "세션\n"
     # 설치기가 만든 것은 제거
     assert not (work2 / "scripts/bot-up.sh").exists()
     assert not (work2 / ".env.example").exists()
@@ -639,7 +687,7 @@ def test_remove_diff_zero_and_preserves_user_data(tmp_path):
 def test_remove_warns_on_delegated_uninstall_failure(tmp_path):
     base, work = _installed(tmp_path)
     coach_uninstall = tmp_path / ".local/share/discord-harness/repos/usage-coach/scripts/uninstall.sh"
-    coach_uninstall.write_text("#!/bin/bash\nexit 1\n")
+    coach_uninstall.write_text("#!/bin/bash\nexit 1\n", encoding="utf-8")
     coach_uninstall.chmod(0o755)
     r = run(tmp_path, "remove", "--work-dir", str(work))
     assert r.returncode == 0, r.stdout + r.stderr   # 계속 진행 의미론 유지
@@ -647,11 +695,11 @@ def test_remove_warns_on_delegated_uninstall_failure(tmp_path):
 
 def test_remove_preserves_user_modified_overlay(tmp_path):
     base, work = _installed(tmp_path)
-    (work / "scripts/post-as.sh").write_text("#!/bin/bash\n# 사용자 수정\n")
+    (work / "scripts/post-as.sh").write_text("#!/bin/bash\n# 사용자 수정\n", encoding="utf-8")
     r = run(tmp_path, "remove", "--work-dir", str(work))
     assert r.returncode == 0
     assert (work / "scripts/post-as.sh").exists()
     assert "[WARN]" in r.stdout and "post-as.sh" in r.stdout
 
 def test_engine_source_never_mentions_bootout():
-    assert "bootout" not in HARNESSCTL.read_text()
+    assert "bootout" not in HARNESSCTL.read_text(encoding="utf-8")

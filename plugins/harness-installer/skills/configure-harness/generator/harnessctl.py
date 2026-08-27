@@ -9,9 +9,17 @@ launchctl로 job을 내리지 않는다(부팅 job은 프로세스 그룹째 킬
 서브커맨드 문자열이 없음을 정적 검증하므로 이 파일에 그 단어를 쓰지 말 것.)
 비밀(토큰·웹훅)은 파일로만 수령하고 stdout에 출력하지 않는다.
 """
-import argparse, hashlib, json, os, plistlib, re, shutil, subprocess, sys, time
+import argparse, hashlib, json, os, plistlib, re, shutil, stat, subprocess, sys, time
 from datetime import datetime
 from pathlib import Path
+
+IS_WIN = sys.platform == "win32"
+
+if IS_WIN:
+    # 콘솔 기본 코드페이지(cp949)는 로그의 em-dash·한글에 UnicodeEncodeError로
+    # 죽는다(discord-multiagent/scripts/bot_win.py와 동일 실측) — UTF-8 강제.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 SCHEMA_VERSION = 1
 ROLES = ("orch", "claude", "codex", "gemini")
@@ -24,7 +32,7 @@ ORCH_PLIST_LABEL = "com.discord-multiagent.orchestrator"
 CHAT_PLIST_LABEL = "com.discord-harness.chat-claude"
 CHAT_SESSION = "chat-claude"
 
-def home() -> Path: return Path(os.environ["HOME"])
+def home() -> Path: return Path(os.environ.get("HOME") or os.environ["USERPROFILE"])
 def config_dir() -> Path: return home() / ".config/discord-harness"
 def state_path() -> Path: return config_dir() / "state.json"
 def repos_dir() -> Path: return home() / ".local/share/discord-harness/repos"
@@ -51,20 +59,44 @@ def repo_url(name: str) -> str:
     return f"https://github.com/netwaif/{name}.git"
 
 def pins() -> dict:
-    return json.loads((Path(__file__).resolve().parent / "pins.json").read_text())
+    return json.loads((Path(__file__).resolve().parent / "pins.json").read_text(encoding="utf-8"))
 
 def load_state() -> dict:
     if not state_path().exists():
         return {"schema_version": SCHEMA_VERSION, "work_dir": None,
                 "repos": {}, "steps": {}, "overlay": {}, "mcp_added": [], "lines_added": {}}
-    return json.loads(state_path().read_text())
+    return json.loads(state_path().read_text(encoding="utf-8"))
 
 def save_state(st: dict) -> None:
     config_dir().mkdir(parents=True, exist_ok=True)
-    state_path().write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n")
+    state_path().write_text(json.dumps(st, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 def run_git(args, cwd=None) -> subprocess.CompletedProcess:
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+
+def rmtree_force(p: Path) -> None:
+    """git .git/objects/* 는 읽기전용 파일 — Windows shutil.rmtree는 그대로 두면
+    PermissionError([WinError 5])로 죽는다(실측). 읽기전용 해제 후 재시도."""
+    def _on_error(func, path, exc_info):
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    shutil.rmtree(p, onerror=_on_error)
+
+def bash_bin() -> str:
+    """PATH의 bare "bash"는 Windows에서 CreateProcess 검색 순서상 System32의 WSL
+    런처 스텁을 먼저 잡을 수 있다(실측: shutil.which는 Git Bash를 찾는데 실제
+    실행은 WSL bash로 튀어 "No such file or directory") — 항상 전체 경로로 지정."""
+    return shutil.which("bash") or "bash"
+
+def secure_file(p: Path) -> None:
+    """비밀 파일(토큰·웹훅) 보호 — POSIX는 chmod 0600, Windows는 무시되므로(스파이크
+    실측) icacls로 상속 제거 + 현재 사용자 단독 허용(ADR 결정 10)."""
+    if IS_WIN:
+        user = os.environ.get("USERNAME", "")
+        subprocess.run(["icacls", str(p), "/inheritance:r", "/grant:r", f"{user}:F"],
+                       capture_output=True, text=True)
+    else:
+        p.chmod(0o600)
 
 def find_tmux() -> str:
     for c in (shutil.which("tmux"), "/opt/homebrew/bin/tmux", "/usr/local/bin/tmux"):
@@ -85,20 +117,53 @@ def cmd_preflight(a) -> None:
         if level == "FAIL":
             fails += 1
         print(f"[{level}] {msg}")
-    rep("OK" if sys.platform == "darwin" else "FAIL", "macOS")
-    for tool, miss_level, hint in (
+    rep("OK" if sys.platform in ("darwin", "win32") else "FAIL",
+        f"플랫폼: {sys.platform}" + ("" if sys.platform in ("darwin", "win32")
+                                    else " — macOS 또는 Windows만 지원"))
+    if IS_WIN:
+        tools = (
+            ("git", "FAIL", "https://git-scm.com/download/win"),
+            ("orca", "FAIL", "https://orca.dev — 세션 호스트(tmux 대체, ADR-0001)"),
+            ("pwsh", "FAIL", "winget install Microsoft.PowerShell (PowerShell 7+, 프로세스 판정에 필요)"),
+            ("node", "FAIL", "https://nodejs.org (브리지는 Node 22+)"),
+            ("bun", "FAIL", "https://bun.sh (discord 플러그인 MCP 실행기)"),
+            ("claude", "FAIL", "https://claude.com/claude-code 설치"),
+            ("codex", "FAIL", "npm i -g @openai/codex (수다 브리지 필수)"),
+            ("agy", "WARN", "없으면 제미나이 봇만 빠짐"),
+        )
+    else:
+        tools = (
             ("git", "FAIL", "xcode-select --install"),
             ("tmux", "FAIL", "brew install tmux"),
             ("node", "FAIL", "brew install node (브리지는 Node 22+)"),
             ("bun", "FAIL", "curl -fsSL https://bun.sh/install | bash (discord 플러그인 MCP 실행기)"),
             ("claude", "FAIL", "https://claude.com/claude-code 설치"),
             ("codex", "FAIL", "npm i -g @openai/codex (수다 브리지 필수)"),
-            ("agy", "WARN", "없으면 제미나이 봇만 빠짐")):
+            ("agy", "WARN", "없으면 제미나이 봇만 빠짐"),
+        )
+    for tool, miss_level, hint in tools:
         found = shutil.which(tool)
         rep("OK" if found else miss_level, f"{tool}: {found or '없음 — ' + hint}")
     plug = home() / ".claude/plugins/cache/claude-plugins-official/discord"
     rep("OK" if plug.is_dir() else "FAIL",
         f"discord 플러그인: {plug if plug.is_dir() else '미설치 — claude 안에서 /plugin 으로 discord 설치'}")
+    if IS_WIN:
+        work = Path(getattr(a, "work_dir", None) or os.getcwd()).expanduser()
+        if not work.is_dir():
+            rep("FAIL", f"작업 폴더 없음: {work}")
+            sys.exit(1 if fails else 0)
+        r = run_git(["rev-parse", "--is-inside-work-tree"], cwd=work)
+        if r.returncode == 0 and r.stdout.strip() == "true":
+            rep("OK", f"git 레포: {work}")
+        else:
+            rep("FAIL", f"git 레포 아님: {work} — orca terminal은 등록된 worktree 안에서만 "
+                        "생성된다(ADR-0005 결정 8). `git init` 후 재시도(설치기가 대신 실행하지 않음)")
+        lp = run_git(["config", "--get", "core.longpaths"], cwd=work)
+        if lp.stdout.strip() != "true":
+            rep("WARN", "git core.longpaths 미설정 — 정본 레포 clone 중 "
+                        "'Filename too long' 가능(실측). `git config --global core.longpaths true` 권고")
+        else:
+            rep("OK", "git core.longpaths=true")
     sys.exit(1 if fails else 0)
 
 def cmd_fetch(a) -> None:
@@ -166,7 +231,7 @@ def read_token_file(work: Path, role: str) -> str:
     f = work / f".bot-token-{role}"
     if not f.exists():
         sys.exit(f"오류: 토큰 파일 없음 — {f}\n다음 행동: pbpaste > {f.name} && chmod 600 {f.name}")
-    tok = f.read_text().strip()
+    tok = f.read_text(encoding="utf-8").strip()
     if not tok:
         sys.exit(f"오류: 토큰 파일이 비어 있음 — {f}")
     return tok
@@ -176,12 +241,12 @@ def write_state_dir(state_dir: Path, token: str, channel_id: str,
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "inbox").mkdir(exist_ok=True)
     env = state_dir / ".env"
-    env.write_text(f"DISCORD_BOT_TOKEN={token}\n")
-    env.chmod(0o600)
+    env.write_text(f"DISCORD_BOT_TOKEN={token}\n", encoding="utf-8")
+    secure_file(env)
     access = {"dmPolicy": "allowlist", "allowFrom": [approver],
               "groups": {channel_id: {"requireMention": require_mention, "allowFrom": [approver]}},
               "pending": {}}
-    (state_dir / "access.json").write_text(json.dumps(access, ensure_ascii=False, indent=2) + "\n")
+    (state_dir / "access.json").write_text(json.dumps(access, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 def cmd_pair(a) -> None:
     work = Path(a.work_dir).expanduser()
@@ -196,8 +261,8 @@ def cmd_pair(a) -> None:
         f"ORCH_BOT_TOKEN={tokens['orch']}\n"
         f"CLAUDE_BOT_TOKEN={tokens['claude']}\n"
         f"CODEX_BOT_TOKEN={tokens['codex']}\n"
-        f"GEMINI_BOT_TOKEN={tokens['gemini']}\n")
-    env_path.chmod(0o600)
+        f"GEMINI_BOT_TOKEN={tokens['gemini']}\n", encoding="utf-8")
+    secure_file(env_path)
     write_state_dir(work / ".discord-state", tokens["orch"], a.work_channel_id,
                     a.approver_user_id, False)
     write_state_dir(work / "chat/.discord-state", tokens["claude"], a.chat_channel_id,
@@ -209,8 +274,8 @@ def cmd_pair(a) -> None:
         uc = home() / ".config/usage-coach"
         uc.mkdir(parents=True, exist_ok=True)
         cfg_path = uc / "discord.json"
-        cfg = json.loads(cfg_path.read_text()) if cfg_path.exists() else {}
-        cfg["webhook_url"] = wf.read_text().strip()
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8")) if cfg_path.exists() else {}
+        cfg["webhook_url"] = wf.read_text(encoding="utf-8").strip()
         # 대시보드 "봇 세션" 카드가 이 설치를 가리키게 한다 — 기본값은 정본 저자의
         # 프로덕션 절대경로라 다른 계정에서는 전부 "브리지 꺼짐"으로 보인다
         cfg["bridges"] = [
@@ -223,8 +288,8 @@ def cmd_pair(a) -> None:
             {"name": "Claude", "kind": "claude", "cwd": str(work)},
             {"name": "Claude", "kind": "claude", "cwd": str(work / "chat")},
         ]
-        cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n")
-        cfg_path.chmod(0o600)
+        cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        secure_file(cfg_path)
         wf.unlink()
     for role in ROLES:
         (work / f".bot-token-{role}").unlink()
@@ -242,7 +307,7 @@ def load_manifest() -> dict:
     if not mp.exists():
         sys.exit(f"오류: 오버레이 manifest 없음 — {mp}\n"
                  f"다음 행동: harnessctl.py fetch 선행(핀이 manifest 포함 버전인지 doctor 로 확인)")
-    mf = json.loads(mp.read_text())
+    mf = json.loads(mp.read_text(encoding="utf-8"))
     if mf.get("schema_version") != SCHEMA_VERSION:
         sys.exit(f"오류: manifest schema_version {mf.get('schema_version')} ≠ {SCHEMA_VERSION}"
                  f" — 설치기 업데이트 필요")
@@ -255,25 +320,25 @@ def apply_overlay(work: Path, st: dict) -> list[str]:
         src, dst = harness_repo() / item["src"], work / item["dst"]
         dst.parent.mkdir(parents=True, exist_ok=True)
         if item.get("merge") == "json-mcp-servers" and dst.exists():
-            cur = json.loads(dst.read_text())
-            add = json.loads(src.read_text())
+            cur = json.loads(dst.read_text(encoding="utf-8"))
+            add = json.loads(src.read_text(encoding="utf-8"))
             added = [k for k in add.get("mcpServers", {})
                      if k not in cur.setdefault("mcpServers", {})]
             for k in added:
                 cur["mcpServers"][k] = add["mcpServers"][k]
             if added:
-                dst.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n")
+                dst.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
                 st["mcp_added"] = sorted(set(st.get("mcp_added", []) + added))
                 out.append(f"오버레이(병합): {dst} += {added}")
             continue
         if item.get("merge") == "append-lines" and dst.exists():
-            cur_lines = dst.read_text().splitlines()
+            cur_lines = dst.read_text(encoding="utf-8").splitlines()
             cur_rstripped = {c.rstrip() for c in cur_lines}
-            new_lines = [line for line in src.read_text().splitlines()
+            new_lines = [line for line in src.read_text(encoding="utf-8").splitlines()
                         if line.rstrip() not in cur_rstripped]
             if new_lines:
                 cur_lines.extend(new_lines)
-                dst.write_text("\n".join(cur_lines) + "\n")
+                dst.write_text("\n".join(cur_lines) + "\n", encoding="utf-8")
                 added_rec = st.setdefault("lines_added", {})
                 existing = added_rec.get(item["dst"], [])
                 added_rec[item["dst"]] = existing + [l for l in new_lines if l not in existing]
@@ -284,7 +349,7 @@ def apply_overlay(work: Path, st: dict) -> list[str]:
             out.append(f"오버레이: {dst}")
         dst.chmod(int(item.get("mode", "644"), 8))
         st["overlay"][item["dst"]] = sha256(dst)
-    body = extract_block((harness_repo() / mf["claude_block"]["src"]).read_text())
+    body = extract_block((harness_repo() / mf["claude_block"]["src"]).read_text(encoding="utf-8"))
     out += install_claude_block(work / "CLAUDE.md", body)
     return out
 
@@ -306,26 +371,26 @@ def extract_block(text: str) -> str:
     return text.split(BLOCK_START, 1)[1].split(BLOCK_END, 1)[0]
 
 def install_claude_block(md: Path, body: str) -> list[str]:
-    cur = md.read_text() if md.exists() else ""
+    cur = md.read_text(encoding="utf-8") if md.exists() else ""
     if BLOCK_START in cur:
         return []
-    md.write_text(cur + f"\n{BLOCK_START}{body}{BLOCK_END}\n")
+    md.write_text(cur + f"\n{BLOCK_START}{body}{BLOCK_END}\n", encoding="utf-8")
     return [f"CLAUDE.md 블록 설치: {md}"]
 
 def remove_claude_block(md: Path) -> list[str]:
     if not md.exists():
         return []
-    cur = md.read_text()
+    cur = md.read_text(encoding="utf-8")
     if BLOCK_START not in cur or BLOCK_END not in cur:
         return []
     pre, rest = cur.split(BLOCK_START, 1)
     _, post = rest.split(BLOCK_END, 1)
-    md.write_text(pre.rstrip("\n") + ("\n" if pre.strip() else "") + post.lstrip("\n"))
+    md.write_text(pre.rstrip("\n") + ("\n" if pre.strip() else "") + post.lstrip("\n"), encoding="utf-8")
     return [f"CLAUDE.md 블록 제거: {md}"]
 
 def parse_env(path: Path) -> dict:
     out = {}
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
@@ -360,8 +425,8 @@ def write_bridge_envs(work: Path) -> list[str]:
                  f"CHANNEL_IDS={env['CHAT_CHANNEL_ID']}",
                  f"NAME_TRIGGER_CHANNEL_IDS={env['CHAT_CHANNEL_ID']}",
                  f"TRIGGER_NAME={trigger}", *extra]
-        p.write_text("\n".join(lines) + "\n")
-        p.chmod(0o600)
+        p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        secure_file(p)
         out.append(f"브리지 환경 조립: {p}")
     return out
 
@@ -378,7 +443,7 @@ def write_bot_settings(work: Path, st: dict) -> list[str]:
         p = d / ".claude/settings.local.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         created = not p.exists()
-        cur = {} if created else json.loads(p.read_text())
+        cur = {} if created else json.loads(p.read_text(encoding="utf-8"))
         entry = {"created": created, "allow": [], "eams": False,
                  "statusline": False, "mode": False}
         if not cur.get("enableAllProjectMcpServers"):
@@ -401,9 +466,9 @@ def write_bot_settings(work: Path, st: dict) -> list[str]:
                 "type": "command",
                 "command": f"bash {coach_repo()}/scripts/statusline-command.sh"}
             entry["statusline"] = True
-        rel = str(p.relative_to(work))
+        rel = p.relative_to(work).as_posix()  # state.json 키는 플랫폼 무관 forward-slash 통일
         if entry["allow"] or entry["eams"] or entry["statusline"] or entry["mode"]:
-            p.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n")
+            p.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             if rel not in rec:
                 rec[rel] = entry
             out.append(f"봇 권한 사전 승인: {p} (discord reply + MCP 서버 + statusLine"
@@ -441,12 +506,22 @@ def delegate(argv: list, cwd: Path, dry: bool, log_hint: str) -> None:
     if dry:
         print(f"위임(dry-run): (cd {cwd}) {line}")
         return
-    r = subprocess.run([str(x) for x in argv], cwd=cwd)
+    # Git Bash(MSYS)는 백슬래시를 이스케이프로 파싱해 인자를 뭉갠다(실측:
+    # "C:\Users\..." → "C:Users..."). posix 표기로 넘기면 정상 동작.
+    real_argv = [x.as_posix() if isinstance(x, Path) else str(x) for x in argv]
+    r = subprocess.run(real_argv, cwd=cwd)
     if r.returncode != 0:
         sys.exit(f"오류: 위임 스크립트 실패(exit {r.returncode}) — {line}\n"
                  f"로그: {log_hint}\n다음 행동: 원인 해결 후 install 재실행(멱등)")
 
 def mcp_log_dir(workdir: Path) -> Path:
+    if IS_WIN:
+        # S2 확정(docs/spikes/2026-08-27-windows-spikes.md 실측): \/:.를 - 로 맹글링,
+        # 경로에 Cache 세그먼트 추가.
+        mangled = re.sub(r"[\\/:.]", "-", str(workdir))
+        local_appdata = Path(os.environ.get("LOCALAPPDATA", str(home())))
+        return (local_appdata / "claude-cli-nodejs" / "Cache" / mangled /
+                "mcp-logs-plugin-discord-discord")
     mangled = re.sub(r"[/.]", "-", str(workdir))
     return home() / "Library/Caches/claude-cli-nodejs" / mangled / "mcp-logs-plugin-discord-discord"
 
@@ -464,7 +539,7 @@ def judge_mcp(workdir: Path, since: float = None):
                             "scripts/bot-restart.sh 로 재기동 후 verify 재실행")
     if not files:
         return "WARN", f"판정 로그 없음(미기동?): {d}"
-    text = files[-1].read_text(errors="ignore")
+    text = files[-1].read_text(encoding="utf-8", errors="ignore")
     if "Successfully connected" in text:
         return "OK", "MCP 연결 성공"
     if "Connection failed" in text:
@@ -473,14 +548,51 @@ def judge_mcp(workdir: Path, since: float = None):
 
 MCP_PROC_MARK = "claude-plugins-official/discord"
 
+def _process_table_win():
+    r = subprocess.run(
+        ["pwsh", "-NoProfile", "-Command",
+         "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine "
+         "| ConvertTo-Json -Compress"],
+        capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        return []
+    data = json.loads(r.stdout)
+    if isinstance(data, dict):  # 프로세스 1개뿐이면 pwsh가 배열 대신 객체를 준다
+        data = [data]
+    table = []
+    for row in data:
+        table.append((row["ProcessId"], row["ParentProcessId"], row.get("CommandLine") or ""))
+    return table
+
+def _exclude_self_and_ancestors(table):
+    """self·조상 프로세스를 결과에서 뺀다 — 실측 함정: 필터가 제 커맨드라인을
+    매칭해 자멸한 사고(docs/spikes 함정 1, macOS `grep -v grep`과 동형 문제)."""
+    by_pid = {pid: ppid for pid, ppid, _ in table}
+    exclude = set()
+    pid = os.getpid()
+    while pid is not None and pid not in exclude:
+        exclude.add(pid)
+        pid = by_pid.get(pid)
+    return [row for row in table if row[0] not in exclude]
+
 def _process_table():
-    """(pid, ppid, command) 목록 — HARNESS_FAKE_PS 가 있으면 그 스냅샷(테스트 시임)."""
+    """(pid, ppid, command) 목록 — HARNESS_FAKE_PS 가 있으면 그 스냅샷(테스트 시임,
+    양 플랫폼 공통 포맷: "pid ppid command..." 줄 단위)."""
     fake = os.environ.get("HARNESS_FAKE_PS")
     if fake is not None:
-        lines = fake.splitlines()
-    else:
-        lines = subprocess.run(["ps", "-axo", "pid=,ppid=,command="],
-                               capture_output=True, text=True).stdout.splitlines()
+        table = []
+        for line in fake.splitlines():
+            parts = line.split(None, 2)
+            if len(parts) == 3:
+                try:
+                    table.append((int(parts[0]), int(parts[1]), parts[2]))
+                except ValueError:
+                    pass
+        return table
+    if IS_WIN:
+        return _exclude_self_and_ancestors(_process_table_win())
+    lines = subprocess.run(["ps", "-axo", "pid=,ppid=,command="],
+                           capture_output=True, text=True).stdout.splitlines()
     table = []
     for line in lines:
         parts = line.split(None, 2)
@@ -490,6 +602,12 @@ def _process_table():
             except ValueError:
                 pass
     return table
+
+def pid_alive(pid: int) -> bool:
+    """os.kill(pid, 0)의 대체 — Windows에서 죽은 pid에도 성공 반환하는 결함이
+    실측됐다(docs/spikes). 같은 프로세스 테이블에서 실존을 확인하며, 이 오판은
+    플랫폼 무관한 결함이라 macOS 경로에도 함께 적용한다(ADR 결정)."""
+    return any(p == pid for p, _, _ in _process_table())
 
 def _pane_pid(session: str):
     """tmux 세션 첫 pane 의 pid. 세션 없으면 None. HARNESS_FAKE_PANES 시임 지원."""
@@ -581,7 +699,7 @@ def judge_codex_tui():
 
 def judge_bridge(logname: str):
     p = bridge_repo() / "logs" / logname
-    if p.exists() and "로그인:" in p.read_text(errors="ignore"):
+    if p.exists() and "로그인:" in p.read_text(encoding="utf-8", errors="ignore"):
         return "OK", f"브리지 로그인 확인({logname})"
     return "FAIL", f"브리지 로그인 없음 — {p} 확인"
 
@@ -630,7 +748,7 @@ def cmd_doctor(a) -> None:
     if not mp.exists():
         rep("WARN", f"오버레이 manifest 없음: {mp}")
     else:
-        sv = json.loads(mp.read_text()).get("schema_version")
+        sv = json.loads(mp.read_text(encoding="utf-8")).get("schema_version")
         rep("OK" if sv == SCHEMA_VERSION else "FAIL",
             f"manifest schema_version {sv}" + ("" if sv == SCHEMA_VERSION else f" ≠ {SCHEMA_VERSION} — 설치기 업데이트 필요"))
     wd = getattr(a, "work_dir", None) or st.get("work_dir")
@@ -641,10 +759,13 @@ def cmd_doctor(a) -> None:
         for label, p in ((ORCH_PLIST_LABEL, home() / f"Library/LaunchAgents/{ORCH_PLIST_LABEL}.plist"),
                          (CHAT_PLIST_LABEL, chat_plist_path())):
             rep("OK" if p.exists() else "WARN", f"plist {label}: {'있음' if p.exists() else '없음'}")
-        for sess in ("orchestrator", CHAT_SESSION):
-            alive = subprocess.run([find_tmux(), "has-session", "-t", sess],
-                                   capture_output=True).returncode == 0
-            rep("OK" if alive else "WARN", f"tmux 세션 {sess} {'생존' if alive else '없음'}")
+        if IS_WIN:
+            rep("WARN", "세션 호스트(orca terminal) 판정 미구현 — 수동 확인 필요")
+        else:
+            for sess in ("orchestrator", CHAT_SESSION):
+                alive = subprocess.run([find_tmux(), "has-session", "-t", sess],
+                                       capture_output=True).returncode == 0
+                rep("OK" if alive else "WARN", f"tmux 세션 {sess} {'생존' if alive else '없음'}")
     sys.exit(1 if fails else 0)
 
 def cmd_remove(a) -> None:
@@ -655,17 +776,21 @@ def cmd_remove(a) -> None:
         nonlocal warns
         warns += 1
         print(f"[WARN] {msg}")
-    tmux = find_tmux()
-    for sess in ("orchestrator", CHAT_SESSION):
-        subprocess.run([tmux, "kill-session", "-t", sess], capture_output=True)
-    for p in (home() / f"Library/LaunchAgents/{ORCH_PLIST_LABEL}.plist", chat_plist_path()):
-        if p.exists():
-            p.unlink()
-            print(f"plist 제거: {p}")
+    if IS_WIN:
+        print("[SKIP] Windows 세션 종료 미구현(orca terminal 연동 2차) — orca terminal에서 "
+             "봇 세션을 수동으로 정리할 것")
+    else:
+        tmux = find_tmux()
+        for sess in ("orchestrator", CHAT_SESSION):
+            subprocess.run([tmux, "kill-session", "-t", sess], capture_output=True)
+        for p in (home() / f"Library/LaunchAgents/{ORCH_PLIST_LABEL}.plist", chat_plist_path()):
+            if p.exists():
+                p.unlink()
+                print(f"plist 제거: {p}")
     for script, cwd in ((bridge_repo() / "scripts/uninstall.sh", bridge_repo()),
                         (coach_repo() / "scripts/uninstall.sh", coach_repo())):
         if script.exists():
-            r = subprocess.run(["bash", str(script)], cwd=cwd)
+            r = subprocess.run([bash_bin(), script.as_posix()], cwd=cwd)  # MSYS 백슬래시 파싱 회피
             if r.returncode != 0:
                 warn(f"제거 스크립트 실패(exit {r.returncode}): {script} — 수동 확인 필요")
         else:
@@ -684,7 +809,7 @@ def cmd_remove(a) -> None:
         if not p.exists():
             continue
         try:
-            cur = json.loads(p.read_text())
+            cur = json.loads(p.read_text(encoding="utf-8"))
         except ValueError:
             warn(f"권한 파일 파싱 실패 — 보존: {p}")
             continue
@@ -710,32 +835,32 @@ def cmd_remove(a) -> None:
                 pass
             print(f"권한 파일 제거: {p}")
         else:
-            p.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n")
+            p.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             print(f"권한 사전 승인 회수: {p}")
     for line in remove_claude_block(work / "CLAUDE.md"):
         print(line)
     mcp_path = work / ".mcp.json"
     if st.get("mcp_added") and mcp_path.exists():
-        cur = json.loads(mcp_path.read_text())
+        cur = json.loads(mcp_path.read_text(encoding="utf-8"))
         for k in st["mcp_added"]:
             cur.get("mcpServers", {}).pop(k, None)
-        mcp_path.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n")
+        mcp_path.write_text(json.dumps(cur, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f".mcp.json 항목 제거: {st['mcp_added']}")
     for rel, lines in st.get("lines_added", {}).items():
         p = work / rel
         if not p.exists():
             continue
-        cur = p.read_text().splitlines()
+        cur = p.read_text(encoding="utf-8").splitlines()
         removed = False
         for line in lines:
             if line in cur:
                 cur.remove(line)
                 removed = True
         if removed:
-            p.write_text("\n".join(cur) + ("\n" if cur else ""))
+            p.write_text("\n".join(cur) + ("\n" if cur else ""), encoding="utf-8")
             print(f"줄 제거: {p} -= {len(lines)}줄")
     if repos_dir().exists():
-        shutil.rmtree(repos_dir())
+        rmtree_force(repos_dir())
         print(f"소스 저장소 제거: {repos_dir()}")
     if warns:
         print(f"[WARN] {warns}건 미완 — 상태 보존({state_path()}). 재실행하면 이어서 제거한다")
@@ -793,9 +918,8 @@ def cmd_verify(a) -> None:
         alive = False
         if pid_p.exists():
             try:
-                os.kill(int(pid_p.read_text().split()[0]), 0)
-                alive = True
-            except (ValueError, ProcessLookupError, PermissionError):
+                alive = pid_alive(int(pid_p.read_text(encoding="utf-8").split()[0]))
+            except ValueError:
                 pass
         rep("OK" if alive else "WARN",
             f"{label} 데몬 {'생존' if alive else '죽음/미기동'}: {pid_p}")
@@ -820,7 +944,7 @@ def cmd_verify(a) -> None:
             rep("WARN", f"웹훅 설정 없음: {cfg}")
         else:
             import urllib.request
-            url = json.loads(cfg.read_text()).get("webhook_url", "")
+            url = json.loads(cfg.read_text(encoding="utf-8")).get("webhook_url", "")
             try:
                 req = urllib.request.Request(
                     url, data=json.dumps({"content": "harness-installer verify: 웹훅 OK"}).encode(),
@@ -846,13 +970,16 @@ def cmd_install(a) -> None:
     if a.phase in ("delegate", "all"):
         for line in write_bridge_envs(work):
             print(line)
-        delegate(["bash", bridge_repo() / "scripts/install.sh"], bridge_repo(),
+        delegate([bash_bin(), bridge_repo() / "scripts/install.sh"], bridge_repo(),
                  a.dry_run, str(bridge_repo() / "logs"))
         if a.dashboard:
-            delegate(["bash", coach_repo() / "scripts/install.sh"], coach_repo(),
+            delegate([bash_bin(), coach_repo() / "scripts/install.sh"], coach_repo(),
                      a.dry_run, "~/.config/usage-coach/")
-        if a.autostart:
-            delegate(["bash", work / "scripts/install-autostart.sh"], work,
+        if a.autostart and IS_WIN:
+            print("[SKIP] Windows 자동 기동 미구현(schtasks+bots.json, ADR-0002/0003) — "
+                 "2차 작업. orca terminal에서 봇을 수동 기동할 것")
+        elif a.autostart:
+            delegate([bash_bin(), work / "scripts/install-autostart.sh"], work,
                      a.dry_run, "launchctl print gui/$(id -u)/" + ORCH_PLIST_LABEL)
             if a.dry_run:
                 print(f"위임(dry-run): plist 생성 예정 — {chat_plist_path()}")
@@ -868,7 +995,9 @@ def cmd_install(a) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("preflight", help="전제 도구 점검(읽기 전용)").set_defaults(fn=cmd_preflight)
+    fl = sub.add_parser("preflight", help="전제 도구 점검(읽기 전용)")
+    fl.add_argument("--work-dir", help="Windows: git 레포 검사 대상(기본 cwd)")
+    fl.set_defaults(fn=cmd_preflight)
     fp = sub.add_parser("fetch", help="정본 3레포 clone/pull (기본: 검증 조합 핀)")
     fp.add_argument("--latest", action="store_true")
     fp.set_defaults(fn=cmd_fetch)
