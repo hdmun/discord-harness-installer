@@ -248,6 +248,74 @@ def write_state_dir(state_dir: Path, token: str, channel_id: str,
               "pending": {}}
     (state_dir / "access.json").write_text(json.dumps(access, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+WIN_AUTOSTART_TASK = "DiscordHarnessBotWin"  # discord-multiagent scripts/bot_win.py TASK_NAME과 반드시 일치
+
+def bots_json_path(work: Path) -> Path:
+    return work / "bots.json"
+
+def load_bots_json(work: Path):
+    p = bots_json_path(work)
+    if not p.exists():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+
+def bot_sessions(work: Path) -> dict:
+    """{"orch": 세션명, "chat": 세션명} — bots.json이 있으면 그걸(Windows는 호스트
+    접미사 포함 가능, 결정 9), 없으면 macOS 레거시 기본값(구버전 설치·미페어링)."""
+    data = load_bots_json(work)
+    m = {}
+    if data:
+        for bot in data.get("bots", []):
+            if bot.get("name") == "orchestrator":
+                m["orch"] = bot.get("session", "orchestrator")
+            elif bot.get("name") == CHAT_SESSION:
+                m["chat"] = bot.get("session", CHAT_SESSION)
+    m.setdefault("orch", "orchestrator")
+    m.setdefault("chat", CHAT_SESSION)
+    return m
+
+def default_session_name(role: str) -> str:
+    """Windows 기본값은 호스트 접미사 포함 — 같은 클로드 계정으로 macOS 프로덕션과
+    세션 이름이 겹치면 채널 연결이 로그 없이 스킵된다(2026-08-10 실측, 결정 9).
+    macOS 기본값은 현행 유지(프로덕션 무회귀)."""
+    base = "orchestrator" if role == "orch" else CHAT_SESSION
+    if IS_WIN:
+        return f"{base}-{os.environ.get('COMPUTERNAME', 'win')}"
+    return base
+
+def bot_claude_args(session: str) -> list:
+    return ["-n", session, "--remote-control", session,
+            "--channels", "plugin:discord@claude-plugins-official"]
+
+def write_bots_json(work: Path) -> list:
+    """기동 명령 정본(ADR 결정 4) — Windows bot_win.py가 이 파일을 읽어 up/restart/
+    autostart-boot의 claude 인자를 재구성한다. macOS는 아직 읽지 않지만 향후 이관
+    경로이자 대시보드 [약속] "봇·폴더·채널 매핑 표시"의 데이터원."""
+    orch, chat = default_session_name("orch"), default_session_name("chat")
+    data = {
+        "schema_version": 1,
+        "bots": [
+            {"name": "orchestrator", "folder": str(work),
+             "state_dir": str(work / ".discord-state"), "session": orch,
+             "remote_control": True, "autostart": True,
+             "claude_args": bot_claude_args(orch)},
+            {"name": CHAT_SESSION, "folder": str(work / "chat"),
+             "state_dir": str(work / "chat/.discord-state"), "session": chat,
+             "remote_control": True, "autostart": True,
+             "claude_args": bot_claude_args(chat)},
+        ],
+    }
+    p = bots_json_path(work)
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return [f"bots.json 생성: {p}"]
+
+def schtasks_registered(name: str) -> bool:
+    r = subprocess.run(["schtasks", "/query", "/tn", name], capture_output=True)
+    return r.returncode == 0
+
 def cmd_pair(a) -> None:
     work = Path(a.work_dir).expanduser()
     env_path = work / ".env"
@@ -293,6 +361,8 @@ def cmd_pair(a) -> None:
         wf.unlink()
     for role in ROLES:
         (work / f".bot-token-{role}").unlink()
+    for line in write_bots_json(work):
+        print(line)
     st = load_state()
     st["work_dir"] = str(work)
     st["steps"]["pair"] = now()
@@ -623,9 +693,27 @@ def _pane_pid(session: str):
         return int(tok)
     return None
 
+def _session_root_win(session: str):
+    """세션 이름으로 claude 루트 pid를 찾는다 — tmux pane 대신 cmdline
+    "-n <세션>" 매칭(결정 5). MCP stdio 서버는 claude.exe의 직계 자식으로
+    뜬다(스파이크 실측)."""
+    needle = f"-n {session}"
+    for pid, _, cmd in _process_table():
+        if not cmd or needle not in cmd:
+            continue
+        argv = _cmd_argv(cmd)
+        if argv and Path(argv[0]).name.lower().startswith("claude"):
+            return pid
+    return None
+
 def session_procs(session: str):
-    """tmux 세션 pane 프로세스 트리의 (pid, command) 목록. 세션 없으면 None."""
-    root = _pane_pid(session)
+    """세션 프로세스 트리의 (pid, command) 목록. 세션 없으면 None.
+    HARNESS_FAKE_PANES 시임이 있으면 그걸 우선(플랫폼 무관 결정론적 테스트 경로) —
+    실제 경로는 macOS=tmux pane(_pane_pid), Windows=cmdline 매칭(_session_root_win)."""
+    if os.environ.get("HARNESS_FAKE_PANES") is None and IS_WIN:
+        root = _session_root_win(session)
+    else:
+        root = _pane_pid(session)
     if root is None:
         return None
     table = _process_table()
@@ -776,12 +864,18 @@ def cmd_doctor(a) -> None:
         work = Path(wd).expanduser()
         rep("OK" if (work / ".env").exists() else "WARN",
             f"페어링(.env): {'있음' if (work / '.env').exists() else '없음 — pair 필요'}")
-        for label, p in ((ORCH_PLIST_LABEL, home() / f"Library/LaunchAgents/{ORCH_PLIST_LABEL}.plist"),
-                         (CHAT_PLIST_LABEL, chat_plist_path())):
-            rep("OK" if p.exists() else "WARN", f"plist {label}: {'있음' if p.exists() else '없음'}")
         if IS_WIN:
-            rep("WARN", "세션 호스트(orca terminal) 판정 미구현 — 수동 확인 필요")
+            registered = schtasks_registered(WIN_AUTOSTART_TASK)
+            rep("OK" if registered else "WARN",
+                f"자동 기동(schtasks {WIN_AUTOSTART_TASK}): {'등록됨' if registered else '없음 — autostart-install 필요'}")
+            sessions = bot_sessions(work)
+            for label, sess in (("오케스트레이터", sessions["orch"]), ("수다 클로드", sessions["chat"])):
+                alive = session_procs(sess) is not None
+                rep("OK" if alive else "WARN", f"세션 {label}({sess}) {'생존' if alive else '없음'}")
         else:
+            for label, p in ((ORCH_PLIST_LABEL, home() / f"Library/LaunchAgents/{ORCH_PLIST_LABEL}.plist"),
+                             (CHAT_PLIST_LABEL, chat_plist_path())):
+                rep("OK" if p.exists() else "WARN", f"plist {label}: {'있음' if p.exists() else '없음'}")
             for sess in ("orchestrator", CHAT_SESSION):
                 alive = subprocess.run([find_tmux(), "has-session", "-t", sess],
                                        capture_output=True).returncode == 0
@@ -797,8 +891,15 @@ def cmd_remove(a) -> None:
         warns += 1
         print(f"[WARN] {msg}")
     if IS_WIN:
-        print("[SKIP] Windows 세션 종료 미구현(orca terminal 연동 2차) — orca terminal에서 "
-             "봇 세션을 수동으로 정리할 것")
+        if schtasks_registered(WIN_AUTOSTART_TASK):
+            subprocess.run(["schtasks", "/delete", "/tn", WIN_AUTOSTART_TASK, "/f"],
+                           capture_output=True)
+            print(f"자동 기동 해제: {WIN_AUTOSTART_TASK}")
+        # 실행 중인 봇 세션은 강제 종료하지 않는다 — /exit 없는 강제 종료는 유령
+        # 리스를 만든다(discord-harness-installer 2026-08-06 실측, ADR-0001 근거).
+        # bot_win.py restart가 정상 종료 경로를 갖고 있으니 그쪽으로 유도한다.
+        print("[SKIP] 실행 중인 봇 세션은 자동 종료하지 않음(정상 종료 보장) — "
+             "orca terminal에서 각 세션에 /exit 입력 후 닫거나 bot_win.py restart 사용")
     else:
         tmux = find_tmux()
         for sess in ("orchestrator", CHAT_SESSION):
@@ -902,8 +1003,9 @@ def cmd_verify(a) -> None:
         if steps.get(key):
             ts = datetime.fromisoformat(steps[key]).timestamp()
             since = ts if since is None else max(since, ts)
-    bots = (("오케스트레이터", "orchestrator", work),
-            ("수다 클로드", CHAT_SESSION, work / "chat"))
+    sessions = bot_sessions(work)
+    bots = (("오케스트레이터", sessions["orch"], work),
+            ("수다 클로드", sessions["chat"], work / "chat"))
     wait = getattr(a, "wait", 0) or 0
     if wait:
         # bot-up.sh 직렬화(락 대기 300초 + 연결 판정 240초) 중 조기 FAIL 방지 —
@@ -926,40 +1028,50 @@ def cmd_verify(a) -> None:
                                 "(claude mcp list 등)의 로그일 수 있음. "
                                 "scripts/bot-restart.sh 로 재기동 후 verify 재실행")
         rep(lvl, f"{label}: {msg}")
-    bridge_specs = [("코덱스", "daemon.log", "data/daemon.pid")]
-    if (bridge_repo() / ".env.gemini").exists():
-        bridge_specs.append(("제미나이", "daemon-gemini.log", "data-gemini/daemon.pid"))
+    if IS_WIN:
+        rep("SKIP", "브리지(코덱스·제미나이) — codex-discord 2차 범위, 이 수직 슬라이스 밖")
     else:
-        rep("WARN", "제미나이: 브리지 .env.gemini 없음 — 미구성으로 건너뜀")
-    for label, logname, pidrel in bridge_specs:
-        lvl, msg = judge_bridge(logname)
-        rep(lvl, f"{label}: {msg}")
-        pid_p = bridge_repo() / pidrel
-        alive = False
-        if pid_p.exists():
-            try:
-                alive = pid_alive(int(pid_p.read_text(encoding="utf-8").split()[0]))
-            except ValueError:
-                pass
-        rep("OK" if alive else "WARN",
-            f"{label} 데몬 {'생존' if alive else '죽음/미기동'}: {pid_p}")
-    tui = judge_codex_tui()
-    if tui:
-        rep(*tui)
-    for sess in ("orchestrator", CHAT_SESSION):
+        bridge_specs = [("코덱스", "daemon.log", "data/daemon.pid")]
+        if (bridge_repo() / ".env.gemini").exists():
+            bridge_specs.append(("제미나이", "daemon-gemini.log", "data-gemini/daemon.pid"))
+        else:
+            rep("WARN", "제미나이: 브리지 .env.gemini 없음 — 미구성으로 건너뜀")
+        for label, logname, pidrel in bridge_specs:
+            lvl, msg = judge_bridge(logname)
+            rep(lvl, f"{label}: {msg}")
+            pid_p = bridge_repo() / pidrel
+            alive = False
+            if pid_p.exists():
+                try:
+                    alive = pid_alive(int(pid_p.read_text(encoding="utf-8").split()[0]))
+                except ValueError:
+                    pass
+            rep("OK" if alive else "WARN",
+                f"{label} 데몬 {'생존' if alive else '죽음/미기동'}: {pid_p}")
+        tui = judge_codex_tui()
+        if tui:
+            rep(*tui)
+    for sess in (sessions["orch"], sessions["chat"]):
         procs = session_procs(sess)
         if procs is None:
-            rep("WARN", f"tmux 세션 {sess} 없음")
+            rep("WARN", f"세션 {sess} 없음")
         elif any(Path(_cmd_argv(cmd)[0]).name.startswith("claude")
                 for _, cmd in procs if _cmd_argv(cmd)):
-            rep("OK", f"tmux 세션 {sess} claude 가동")
+            rep("OK", f"세션 {sess} claude 가동")
         else:
-            # 세션 존재 ≠ 봇 가동 — bot-up 락 대기 중이면 pane 이 비어 있다 (3차 실측)
-            rep("WARN", f"tmux 세션 {sess}: 세션은 있으나 claude 프로세스 없음(기동 대기/실패)")
-    for label, p in ((ORCH_PLIST_LABEL, home() / f"Library/LaunchAgents/{ORCH_PLIST_LABEL}.plist"),
-                     (CHAT_PLIST_LABEL, chat_plist_path())):
-        rep("OK" if p.exists() else "WARN", f"plist {label}: {'있음' if p.exists() else '없음'}")
-    if not a.skip_webhook:
+            # 세션 존재 ≠ 봇 가동 — bot-up 락 대기 중이면 pane/터미널이 비어 있다 (3차 실측)
+            rep("WARN", f"세션 {sess}: 세션은 있으나 claude 프로세스 없음(기동 대기/실패)")
+    if IS_WIN:
+        registered = schtasks_registered(WIN_AUTOSTART_TASK)
+        rep("OK" if registered else "WARN",
+            f"자동 기동(schtasks {WIN_AUTOSTART_TASK}): {'등록됨' if registered else '없음'}")
+    else:
+        for label, p in ((ORCH_PLIST_LABEL, home() / f"Library/LaunchAgents/{ORCH_PLIST_LABEL}.plist"),
+                         (CHAT_PLIST_LABEL, chat_plist_path())):
+            rep("OK" if p.exists() else "WARN", f"plist {label}: {'있음' if p.exists() else '없음'}")
+    if IS_WIN and not a.skip_webhook:
+        rep("SKIP", "웹훅 — usage-coach 대시보드 2차 범위, 이 수직 슬라이스 밖")
+    elif not a.skip_webhook:
         cfg = home() / ".config/usage-coach/discord.json"
         if not cfg.exists():
             rep("WARN", f"웹훅 설정 없음: {cfg}")
@@ -989,16 +1101,23 @@ def cmd_install(a) -> None:
         out += apply_seeds(work, st)
         out += write_bot_settings(work, st)
     if a.phase in ("delegate", "all"):
-        for line in write_bridge_envs(work):
-            print(line)
-        delegate([bash_bin(), bridge_repo() / "scripts/install.sh"], bridge_repo(),
-                 a.dry_run, str(bridge_repo() / "logs"))
-        if a.dashboard:
+        if IS_WIN:
+            print("[SKIP] 브리지(코덱스·제미나이) 설치 — codex-discord 2차 범위, 이 수직 슬라이스 밖")
+        else:
+            for line in write_bridge_envs(work):
+                print(line)
+            delegate([bash_bin(), bridge_repo() / "scripts/install.sh"], bridge_repo(),
+                     a.dry_run, str(bridge_repo() / "logs"))
+        if a.dashboard and IS_WIN:
+            print("[SKIP] 대시보드(usage-coach) 설치 — 2차 범위, 이 수직 슬라이스 밖")
+        elif a.dashboard:
             delegate([bash_bin(), coach_repo() / "scripts/install.sh"], coach_repo(),
                      a.dry_run, "~/.config/usage-coach/")
         if a.autostart and IS_WIN:
-            print("[SKIP] Windows 자동 기동 미구현(schtasks+bots.json, ADR-0002/0003) — "
-                 "2차 작업. orca terminal에서 봇을 수동 기동할 것")
+            # overlay 단계가 work/scripts/bot_win.py를 이미 복사해 뒀다(manifest 등록,
+            # ADR-0004). cwd=work라야 bot_win.py가 이 폴더의 bots.json을 정본으로 잡는다.
+            delegate([sys.executable, work / "scripts/bot_win.py", "autostart-install"],
+                     work, a.dry_run, f"schtasks /query /tn {WIN_AUTOSTART_TASK}")
         elif a.autostart:
             delegate([bash_bin(), work / "scripts/install-autostart.sh"], work,
                      a.dry_run, "launchctl print gui/$(id -u)/" + ORCH_PLIST_LABEL)

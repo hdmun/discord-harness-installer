@@ -19,6 +19,7 @@ def run(home_dir, *args, env_extra=None):
                           encoding="utf-8", errors="replace")
 
 STUB = "#!/bin/bash\necho stub-ok\n"
+PY_STUB = "print('stub-ok')\n"  # bot_win.py 자리 — 인자 무관 항상 exit 0(실제 schtasks 미호출)
 MANIFEST = {
     "schema_version": 1,
     "overlay": [
@@ -27,6 +28,7 @@ MANIFEST = {
         {"src": "scripts/post-as.sh", "dst": "scripts/post-as.sh", "mode": "755"},
         {"src": "scripts/new-thread.sh", "dst": "scripts/new-thread.sh", "mode": "755"},
         {"src": "scripts/install-autostart.sh", "dst": "scripts/install-autostart.sh", "mode": "755"},
+        {"src": "scripts/bot_win.py", "dst": "scripts/bot_win.py", "mode": "755"},
         {"src": ".env.example", "dst": ".env.example", "mode": "644"},
         {"src": ".mcp.json", "dst": ".mcp.json", "mode": "644", "merge": "json-mcp-servers"},
         {"src": "install/gitignore-discord", "dst": ".gitignore", "mode": "644", "merge": "append-lines"},
@@ -61,6 +63,7 @@ def make_fixture_repos(tmp_path):
         "scripts/bot-up.sh": STUB, "scripts/bot-restart.sh": STUB,
         "scripts/post-as.sh": STUB, "scripts/new-thread.sh": STUB,
         "scripts/install-autostart.sh": STUB,
+        "scripts/bot_win.py": PY_STUB,
         ".env.example": "WORK_CHANNEL_ID=\nCHAT_CHANNEL_ID=\n",
         ".mcp.json": json.dumps({"mcpServers": {"codex": {"type": "stdio", "command": "codex",
                                                           "args": ["mcp-server"], "env": {}}}}, indent=2),
@@ -390,25 +393,44 @@ def _installed(tmp_path):
     (tmp_path / "Library/LaunchAgents").mkdir(parents=True, exist_ok=True)
     return base, work
 
+def _bot_sessions(work):
+    """cmd_pair가 실제로 생성한 bots.json의 세션 이름 — Windows는 호스트 접미사가
+    붙으므로(결정 9) "orchestrator"/"chat-claude" 리터럴을 시임 키로 쓰면 안 된다."""
+    data = json.loads((work / "bots.json").read_text(encoding="utf-8"))
+    m = {}
+    for bot in data["bots"]:
+        if bot["name"] == "orchestrator":
+            m["orch"] = bot["session"]
+        elif bot["name"] == "chat-claude":
+            m["chat"] = bot["session"]
+    return m
+
 def test_delegate_dry_run_prints_commands_only(tmp_path):
     base, work = _installed(tmp_path)
     r = run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate",
             "--dashboard", "--autostart", "--dry-run")
     assert r.returncode == 0, r.stdout + r.stderr
-    repos = tmp_path / ".local/share/discord-harness/repos"
-    assert f"위임(dry-run): (cd {repos / 'codex-discord'})" in r.stdout
-    assert os.sep.join(("codex-discord", "scripts", "install.sh")) in r.stdout
-    assert os.sep.join(("usage-coach", "scripts", "install.sh")) in r.stdout
     if sys.platform == "win32":
-        # Windows 자동 기동은 아직 미구현(ADR-0002/0003) — SKIP으로 보고하고 macOS
-        # 전용 install-autostart.sh는 아예 호출하지 않는다
-        assert "[SKIP]" in r.stdout and "Windows 자동 기동 미구현" in r.stdout
+        # 브리지·대시보드는 2차 범위라 Windows에서 SKIP — 설치 시도 자체를 안 한다.
+        # 자동 기동은 bot_win.py autostart-install에 위임(dry-run이라 실제 schtasks
+        # 미호출).
+        assert "[SKIP] 브리지" in r.stdout and "codex-discord 2차 범위" in r.stdout
+        assert "[SKIP] 대시보드" in r.stdout
+        assert "install.sh" not in r.stdout
         assert "install-autostart.sh" not in r.stdout
+        assert "위임(dry-run):" in r.stdout and "bot_win.py" in r.stdout
+        assert "autostart-install" in r.stdout
     else:
+        repos = tmp_path / ".local/share/discord-harness/repos"
+        assert f"위임(dry-run): (cd {repos / 'codex-discord'})" in r.stdout
+        assert os.sep.join(("codex-discord", "scripts", "install.sh")) in r.stdout
+        assert os.sep.join(("usage-coach", "scripts", "install.sh")) in r.stdout
         assert os.sep.join(("scripts", "install-autostart.sh")) in r.stdout
     assert not (tmp_path / "Library/LaunchAgents/com.discord-harness.chat-claude.plist").exists()
 
 def test_delegate_assembles_bridge_envs(tmp_path):
+    if sys.platform == "win32":
+        pytest.skip("브리지(codex-discord) 설치는 Windows에서 SKIP — 2차 범위(이 수직 슬라이스 밖)")
     base, work = _installed(tmp_path)
     r = run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate", "--dry-run")
     assert r.returncode == 0, r.stdout + r.stderr
@@ -491,6 +513,8 @@ def _mcp_log(tmp_path, workdir, line):
     (d / "2026-08-04.jsonl").write_text(json.dumps({"msg": line}) + "\n", encoding="utf-8")
 
 def test_verify_ok_with_fixture_logs(tmp_path):
+    if sys.platform == "win32":
+        pytest.skip("브리지·코덱스 TUI·tmux 세션명 전제 macOS 전용 — Windows는 2차 범위 SKIP")
     base, work = _installed(tmp_path)
     bridge = tmp_path / ".local/share/discord-harness/repos/codex-discord"
     run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate", "--dry-run")
@@ -511,6 +535,8 @@ def test_verify_ok_with_fixture_logs(tmp_path):
     assert "[OK] 코덱스 TUI(codex-live:0.0) codex 가동" in r.stdout
 
 def test_verify_webhook_probe_sends_user_agent(tmp_path):
+    if sys.platform == "win32":
+        pytest.skip("웹훅(usage-coach)은 Windows에서 SKIP — 2차 범위")
     # UA 없는 프로브는 Cloudflare(1010)에 차단돼 오탐 FAIL 을 낸다 — 실측 회귀
     base, work = _installed(tmp_path)
     _mcp_log(tmp_path, work, "Successfully connected to Discord")
@@ -564,9 +590,10 @@ def test_verify_fresh_log_without_server_process_is_fail(tmp_path):
     # 2026-08-05 3차 실측: 진단용 `claude mcp list`가 남긴 신선한 성공 로그만으로
     # 합격 처리되면 안 된다 — 봇 세션 자손에 MCP 서버 프로세스가 실존해야 OK
     base, work = _installed(tmp_path)
+    sessions = _bot_sessions(work)
     _mcp_log(tmp_path, work, "Successfully connected to Discord")
     _mcp_log(tmp_path, work / "chat", "Successfully connected to Discord")
-    env = _seams({"orchestrator": 100, "chat-claude": 200},
+    env = _seams({sessions["orch"]: 100, sessions["chat"]: 200},
                  [(100, 1, "claude --channels plugin:discord@claude-plugins-official"),
                   (200, 1, "claude --channels plugin:discord@claude-plugins-official")])
     r = run(tmp_path, "verify", "--work-dir", str(work), "--skip-webhook", env_extra=env)
@@ -576,13 +603,16 @@ def test_verify_fresh_log_without_server_process_is_fail(tmp_path):
 def test_verify_tmux_session_without_claude_is_warn(tmp_path):
     # 락 대기 중 빈 세션이 '생존' OK로 찍히면 오해를 부른다 (3차 실측 #5)
     base, work = _installed(tmp_path)
-    env = _seams({"orchestrator": 100, "chat-claude": 200},
+    sessions = _bot_sessions(work)
+    env = _seams({sessions["orch"]: 100, sessions["chat"]: 200},
                  [(100, 1, "bash scripts/bot-up.sh --channels plugin:discord@claude-plugins-official"),
                   (200, 1, "bash scripts/bot-up.sh --channels plugin:discord@claude-plugins-official")])
     r = run(tmp_path, "verify", "--work-dir", str(work), "--skip-webhook", env_extra=env)
-    assert "[WARN] tmux 세션 orchestrator: 세션은 있으나 claude 프로세스 없음" in r.stdout
+    assert f"[WARN] 세션 {sessions['orch']}: 세션은 있으나 claude 프로세스 없음" in r.stdout
 
 def test_verify_codex_tui_pane_without_codex_is_fail(tmp_path):
+    if sys.platform == "win32":
+        pytest.skip("코덱스 TUI는 Windows에서 SKIP — codex-discord 2차 범위")
     # 3차 실측: codex-live 세션은 있는데 pane이 zsh(codex 죽음)이면 브리지가 호명을
     # 거부한다 — verify가 이를 못 보면 11/11 OK 오탐. 복구 경로(tui-up.sh) 안내 필수
     base, work = _installed(tmp_path)
@@ -600,6 +630,8 @@ def test_verify_codex_tui_pane_without_codex_is_fail(tmp_path):
     assert "[FAIL] 코덱스 TUI" in r.stdout and "tui-up.sh" in r.stdout
 
 def test_verify_codex_tui_without_rollout_is_fail(tmp_path):
+    if sys.platform == "win32":
+        pytest.skip("코덱스 TUI는 Windows에서 SKIP — codex-discord 2차 범위")
     # 3차 실측(회신6): codex v0.146.0은 세션 UUID를 화면에 안 보여 브리지가
     # 롤아웃 session_meta(cwd)로 세션을 특정한다 — cwd 일치 롤아웃이 없으면
     # TUI가 살아 있어도 호명이 실패하므로 verify가 FAIL로 잡아야 한다
