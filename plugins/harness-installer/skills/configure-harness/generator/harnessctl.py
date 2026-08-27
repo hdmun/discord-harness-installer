@@ -9,7 +9,7 @@ launchctl로 job을 내리지 않는다(부팅 job은 프로세스 그룹째 킬
 서브커맨드 문자열이 없음을 정적 검증하므로 이 파일에 그 단어를 쓰지 말 것.)
 비밀(토큰·웹훅)은 파일로만 수령하고 stdout에 출력하지 않는다.
 """
-import argparse, hashlib, json, os, plistlib, re, shutil, stat, subprocess, sys, time
+import argparse, ctypes, hashlib, json, os, plistlib, re, shutil, stat, subprocess, sys, time
 from datetime import datetime
 from pathlib import Path
 
@@ -648,10 +648,30 @@ def mcp_server_alive(session: str) -> bool:
     procs = session_procs(session)
     return bool(procs) and any(MCP_PROC_MARK in cmd for _, cmd in procs)
 
+def _cmd_argv(cmdline: str) -> list:
+    """cmdline을 실제 인자 목록으로 쪼갠다. Windows Get-CimInstance CommandLine은
+    따옴표 포함 경로를 그대로 준다("C:\\Program Files\\...") — naive split()은
+    공백에서 깨진다(실측). CommandLineToArgvW로 정확히 파싱; macOS ps 출력은
+    따옴표가 없어 naive split으로 충분하다."""
+    if not cmdline:
+        return []
+    if not IS_WIN:
+        return cmdline.split()
+    shell32 = ctypes.windll.shell32
+    shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    argc = ctypes.c_int()
+    argv_p = shell32.CommandLineToArgvW(cmdline, ctypes.byref(argc))
+    if not argv_p:
+        return []
+    try:
+        return [argv_p[i] for i in range(argc.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree(argv_p)
+
 def _is_codex_cmd(cmdline: str) -> bool:
     """브리지(codex-discord treeHasCodex)와 동일 기준 — npm 배포판은 codex가
     `#!/usr/bin/env node` 런처라 argv0이 node로 잡힌다(2026-08-05 실측)."""
-    parts = cmdline.split()
+    parts = _cmd_argv(cmdline)
     base = lambda p: Path(p).name if p else ""
     if base(parts[0] if parts else "").startswith("codex"):
         return True
@@ -930,7 +950,8 @@ def cmd_verify(a) -> None:
         procs = session_procs(sess)
         if procs is None:
             rep("WARN", f"tmux 세션 {sess} 없음")
-        elif any(Path(cmd.split()[0]).name.startswith("claude") for _, cmd in procs):
+        elif any(Path(_cmd_argv(cmd)[0]).name.startswith("claude")
+                for _, cmd in procs if _cmd_argv(cmd)):
             rep("OK", f"tmux 세션 {sess} claude 가동")
         else:
             # 세션 존재 ≠ 봇 가동 — bot-up 락 대기 중이면 pane 이 비어 있다 (3차 실측)
