@@ -13,24 +13,41 @@
 ## 현재 상태
 <!-- 덮어쓰기. 항상 짧게 — 지금 어디까지 왔는지 스냅샷만 -->
 
-**8/26 세션은 수다채널 코덱스 브리지 핫픽스**: codex 0.149.0 롤아웃 포맷
-변경으로 TUI→디스코드 릴레이 단절 → codex-discord v0.1.5 + 설치기 0.1.13
-릴리즈·푸시, 프로덕션 복구·실응답 검증, 커뮤니티 공지 게시까지 완료
-(8/26 결정 기록 참조). **연속 답글 초안 1건·#9 이슈 초안 게시 승인 대기
+**8/27 세션은 Windows 지원 설계(WSL2 배제)** — 그릴링으로 결정 13개 확정 +
+선행 스파이크 3건 실측 완료, 코드는 아직 0줄. 산출물: `CONTEXT.md`(용어 12개) /
+`docs/adr/0001~0005` / `docs/spikes/2026-08-27-windows-spikes.md`(실측 전문) /
+계획서 `~/.claude/plans/glistening-leaping-valiant.md`. 범위는 **수직 슬라이스**
+(installer + discord-multiagent 두 레포, 봇 2개가 Windows에서 뜨고 응답하는 것까지 —
+브리지·대시보드는 2차). 재개 지점 = 계약 테스트 작성(Opus), 그 뒤 bot_win.py·
+harnessctl 분기는 Sonnet 위임. **연속 답글 초안 1건·#9 이슈 초안 게시 승인 대기
 유지**(8/24 결정 기록·docs/issues/2026-08-12-claude-code-channel-lease-silent-skip.md).
-영상 준비는 tower 이관 유지(8/12). 재개 지점 = 연속 답글 게시 여부 확인,
-#9 게시 승인 시 게시 + tower URL 회신, tower 매뉴얼 개정 원고 오면 검수.
-유튜브 미답글 2건 관찰(다음 단계 0.5).
+영상 준비는 tower 이관 유지(8/12).
 
 ## 다음 단계
 <!-- 덮어쓰기. 첫 항목 = 다음 세션이 바로 집어들 일 -->
 
+-3. **Windows 슬라이스 — 계약 테스트 작성**(다음 세션 첫 일). ADR-0004의 bot-up 동작
+   4개(①전역 락 직렬화 ②연결 감시자 fd 분리 ③스테일 스틸 ④`--permission-mode auto` 주입)를
+   플랫폼 중립 pytest로 고정. 기존 `discord-multiagent/test/scripts.test.sh:26-35`는 ④만
+   덮고 ①②③은 테스트 0 — 이게 python 병행본의 유일한 안전망이다. **Opus로 할 것.**
+-2. **Windows 슬라이스 — 구현**(계약 테스트 후, Sonnet 위임 가능):
+   ①`discord-multiagent/scripts/bot_win.py`(up/restart/autostart-install/-remove)
+   ②`harnessctl.py` 플랫폼 분기(`home`·`_process_table`·`mcp_log_dir`·`os.kill` 폐기·
+   `icacls`·`cmd_pair`의 bots.json 생성) ③SKILL.md 본문 분기 ④`tests/test_harnessctl.py`
+   42개 Windows 대응. 세부는 계획서. 개발 중 정본 수급은 `HARNESS_REPO_BASE`로 로컬
+   작업 클론 지정(`harnessctl.py:46` 훅) — 태그·핀 갱신은 슬라이스 통과 후 1회.
+   **작업 클론 없음 — 새 세션이 `discord-multiagent`를 제대로 클론해야 함**(8/27
+   스크래치패드 클론은 세션과 함께 소멸).
+-1.5. **Windows E2E 준비(코드와 병렬, 사용자 수동)** — 신규 디스코드 테스트 서버 +
+   봇 앱 2개(orch·chat) + 채널 2개. 기존 프로덕션 봇 토큰 재사용 불가(같은 토큰으로
+   두 기기 게이트웨이 접속 시 이중 응답).
 -1. **bagbio1748님 연속 답글 게시 승인 대기** — 초안 확정본은 8/24 결정 기록에
    전문 수록. 승인 시 채널 1519510111083561021, 답글 id 1541111390444724275
    스레드에 게시(검수 문구 생략 상태 — 필요 시 추가)
 0.5. 유튜브 미답글 2건: ①B0KZOfXj6z0 박일용님 "맥에서만 되나요? 윈도우에서는
    안되나요?"(8/24 발견) — 기존 답변 관례(v40AFadpg4w Hodoo307님 답글: WSL2 안내)
-   재사용 가능 ②_hZ5mozId_0(그래프 엔지니어링 영상) @202-z7g "매뉴얼
+   재사용 가능. **단 8/27부터 네이티브 Windows 지원 작업 착수(WSL2 배제) — 답변 문구를
+   WSL2 안내로 굳히기 전에 다음 단계 -3/-2 진척을 볼 것** ②_hZ5mozId_0(그래프 엔지니어링 영상) @202-z7g "매뉴얼
    부탁드리겠습니다!" / 풍류왕 "윈도우로 되나용?"은 사용자가 직접 답글 완료,
    스레드 위치 미특정(조회 중단됨)
 0. **#9 이슈 게시** — 초안 완성(docs/issues/2026-08-12-claude-code-channel-lease-silent-skip.md),
@@ -105,6 +122,14 @@
 - 2026-08-24 유튜브 관찰: 풍류왕 "윈도우로 되나용?" 댓글은 사용자가 직접 답글(초안 제공: 설치기 맥 전용+WSL2 수동 가능성+미검증 명시). 채널 전체 "윈도우" 검색으로 미답글 발견 — B0KZOfXj6z0 박일용님 건(다음 단계 0.5). 윈도우 질문 기존 답변 관례 = WSL2 안내(v40AFadpg4w) 또는 미검증 솔직 고지(0ScISw3Wuv8)
 - 2026-08-26 **수다채널 코덱스 무응답 원인 격리·핫픽스 릴리즈**: codex CLI 0.149.0 자동 업데이트로 롤아웃에서 event_msg agent_message 소멸(0.146 실물엔 존재, 0.149 세션엔 0건) → 브리지 tail이 아무것도 못 뽑아 릴레이만 무증상 소실(주입·TUI 응답 생성은 정상, agy는 tail 미사용이라 정상). 수정 = extractAgentMessages 매처를 response_item(role=assistant)로 교체 — 0.146~0.149 전 구간 동일 텍스트 기록 실물 검증(event==resp), 구포맷 두 소스 공존 시 중복 게시 배제. codex-discord v0.1.5(f09c7fc, 테스트 63 통과) + 설치기 0.1.13(fed3851, pins codex-discord v0.1.5, 테스트 42 통과) 푸시. 프로덕션 데몬 kickstart 복구, 사용자 실응답 검증(00:39). 공지 게시: 채널 1522490241859059784, 메시지 id 1541837270884024500 — 기존 설치자 업데이트 안내는 "클로드 코드에 지침 붙여넣기" 방식(수동 git checkout 3줄은 state.json 불일치로 verify 오판 유발이라 기각, 정식 경로 = plugin update→fetch 재실행이 멱등). 부속 확인: tail은 연결 시점 이후 append만 릴레이(과거분 재게시 방지 설계) / Hostinger headless 구성은 TUI tail 경로 미사용이라 무관 / 0.1.13 이월분 ①~⑤는 0.1.14 후보로 명칭 이월
 - 2026-08-11 (오전) foldertest 사전 검증 중 격리 2건: ①harness-test 재부팅으로 tmux 서버 소멸 + **GUI 세션 종료 → 키체인 잠김 → SSH 기동 봇이 "Not logged in"**(채널 연결 이전 단계 블로커 — 사용자 GUI 로그인 요청, claude-discord 경유) ②tmux 서버를 SSH에서 재기동할 땐 `zsh -lc`로도 bun ENOENT — bun PATH(~/.bun/bin)·~/.local/bin 주입이 전부 .zshrc(interactive 전용)에 있음 → **`zsh -ic` 경유로 확정**. 8/10 "zsh -lc면 충분" 실측은 tmux 서버가 정상 환경으로 이미 떠 있던 우연. 테스트 세션 2회 모두 /exit 정상 종료(리스 없음)
+- 2026-08-27 **Windows 지원 착수(WSL2 절대 배제) — 그릴링으로 결정 13개 확정**. 범위=수직 슬라이스(installer+discord-multiagent, 봇 2개 기동·응답까지 / 브리지·대시보드·folder-bot은 2차). 세션 호스트=orca terminal(근거: 돌아가는 claude에 `/exit` 주입 채널이 필수 — 강제 종료는 유령 리스를 만든다) / 자동기동=schtasks onlogon(orca automations는 agent-backed라 배제) / 기동 정본=`<work>/bots.json`(plist 겸직 해소, folder-bot 선례) / 프로세스 판정=`pwsh Get-CimInstance Win32_Process`(stdlib 유지) / 부팅경로 셸=Windows 전용 python 병행(macOS bash 229줄 무회귀 보존) + 계약 테스트로 봉인 / git 레포는 preflight 요구(설치기가 `git init` 안 함) / 세션 이름은 bots.json 필드로 옵션화(Windows 기본 `orchestrator-<hostname>`, macOS 현행 유지) / 토큰 보호=icacls / 식별자=ptyId+프로세스 대조 / 런타임 기동=`orca serve`(창 없음) / SKILL.md는 본문 플랫폼 분기. ADR-0001~0005 + CONTEXT.md 발행
+- 2026-08-27 **정본 이중화 기각(2026-08-04)을 부팅 경로에 한해 뒤집음** — 근거: macOS 프로덕션이 E2E 6테이크로 검증됐고 영상·매뉴얼 v2.2가 그 위에 서 있어, 크로스플랫폼 python 단일 정본으로 갈아엎으면 그 검증이 무효가 된다. 대가로 `bot-up` 동작 4개를 플랫폼 중립 계약 테스트로 고정(현재 `test/scripts.test.sh`는 ④만 덮고 ①②③ 테스트 0). ADR-0004
+- 2026-08-27 **스파이크 실측(3건 전부 통과)**: ①MCP 로그 경로 = `%LOCALAPPDATA%\claude-cli-nodejs\Cache\<맹글링>\`, 맹글링 규칙 `re.sub(r'[\\/:.]', '-', path)` 확정(콜론·역슬래시·점 셋 다 하이픈)(macOS `[/.]`+`\`+`:`) ②`orca repo add`는 원격 없는 로컬 git 레포도 등록(`projectId: repo:<id>`) ③`/exit` 주입으로 claude 정상 종료 실증 ④Orca 앱을 죽여도 `orca-terminal-daemon.exe`와 봇이 생존(직접 실증, 4회 재현) ⑤헤드리스에서 `create`·`send`·`read` 전부 동작 → 완전 무인 운영 성립. 전문 `docs/spikes/2026-08-27-windows-spikes.md`
+- 2026-08-27 **`orca serve`는 별도 서버가 아니라 Orca 앱을 창 없이 띄우는 모드**(serve가 만든 프로세스가 `Orca.exe`). `orca open`으로 같은 런타임에 창을 붙일 수 있고 `runtimeId`가 유지된다 — 배타 선택이 아니다. 이미 떠 있으면 serve는 exit 3(`[single-instance]`)이며 부트스트랩은 이를 "이미 기동됨"으로 취급. 런타임이 내려간 동안 봇은 살지만 `terminal list`가 `runtime_unavailable`로 **관리 불가**
+- 2026-08-27 **Windows에서 조용히 깨지는 것 실측**: `os.kill(pid,0)`이 죽은 pid에도 정상 반환(verify 데몬 판정이 항상 합격 — macOS 경로에도 같이 수정) / Git Bash `ps -axo` 미지원 / `stat -f %m` 실패(락 노화 스틸 무동작) / `os.environ["HOME"]` 부재로 KeyError 즉사 / `chmod 0600` 무시 / `jq` 미설치(call_worker.sh — 슬라이스 밖) / `multi-agent-starter` clone 시 `Filename too long`(core.longpaths) / CRLF 체크아웃
+- 2026-08-27 구현 함정 3건 등재: ①커맨드라인 매칭은 self·조상 제외 필수(실측 중 필터가 제 커맨드라인을 매칭해 pwsh가 자멸, exit 255 — macOS `grep -v grep`과 동형) ②`orca terminal wait --for exit`는 셸 종료를 기다려 봇 종료 판정에 못 씀 ③Git Bash에서 `--text "/exit"`가 `C:/Program Files/Git/exit`로 변환됨(MSYS 경로 변환, `MSYS_NO_PATHCONV=1` 필요) ④title은 헤드리스에서 null(렌더러 있어야 채워짐) — 식별은 ptyId
+- 2026-08-27 `orca repo add` 등록은 설치기가 하고 `remove`는 되돌리지 않기로 확정 — `orca repo`에 제거 명령 자체가 없고, `cmd_plugins`가 마켓플레이스·플러그인을 설치하고 remove가 안내만 하는 선례와 동형. diff 0은 **작업 폴더 안 설치기 소유분** 기준. ADR-0005
+- 2026-08-27 개발 워크플로 확정: 정본 수급은 `HARNESS_REPO_BASE`(`harnessctl.py:46` 기존 훅)로 로컬 작업 클론 지정 — 태그·`pins.json` 갱신은 슬라이스 통과 후 1회(rc 태그 남발 금지). `bots.json`은 gitignore 안 함(비밀 없음 + 대시보드 [약속] 항목이 읽어야 함), 새 파일은 `.gitattributes`로 LF 고정
 
 ## 파일 흔적
 <!-- 누적. 만든/고친 파일의 경로를 그대로 적는다. "설정 파일 고침" 같은 산문 금지 -->
@@ -163,3 +188,11 @@
 - 상류 `~/ai-folder/dev/codex-discord/src/rollout.mjs` extractAgentMessages를 response_item(role=assistant, content output_text join) 매처로 교체 + `test/rollout.test.mjs`(픽스처·tail 테스트 신포맷화, 구포맷 event_msg 공존 시 중복 없음 검증) + `test/fixtures/rollout-sample.jsonl`(0.149 형태 response_item 줄 추가) — 커밋 f09c7fc, 태그 v0.1.5 푸시
 - `plugins/harness-installer/skills/configure-harness/generator/pins.json` codex-discord v0.1.4→v0.1.5 + `plugins/harness-installer/.claude-plugin/plugin.json`·`.claude-plugin/marketplace.json` 0.1.13 범프 — 커밋 fed3851 푸시
 - Hostinger 컨테이너(/opt/data): `.profile`·`.bashrc`(LANG=C.UTF-8, PATH: .local/bin·.bun/bin) / `.local/bin/{claude,agy}`·codex(npm prefix) / `discord-bot/.discord-state/{.env,access.json}` / `codex-discord/{.env,.env.gemini}`(v0.1.4, node --env-file로 기동) / `.codex/auth.json`(맥 복사본) / 작업폴더 `codex-workspace`·`agy-workspace`
+- `CONTEXT.md` 도메인 용어집 신설 (세션 호스트·기동 정본·리스·유령 리스·무로그 스킵·판정 소스·정본 저장소·위임 계약·오버레이·검증 조합 등 12개)
+- `docs/adr/0001-orca-terminal-as-session-host.md` Windows 세션 호스트 = orca terminal (`/exit` 주입 채널 필수 / 데몬 생존 실증 / title 비의존 / worktree·git 전제)
+- `docs/adr/0002-schtasks-for-autostart.md` 자동기동 = schtasks onlogon (orca automations agent-backed 배제 / 부트스트랩은 `orca serve` + exit 3 = 이미 기동됨)
+- `docs/adr/0003-bots-json-as-launch-source-of-truth.md` 기동 정본 = `<work>/bots.json` (plist 겸직 해소 / autostart off여도 restart 가능 / 세션 이름 옵션화)
+- `docs/adr/0004-duplicated-boot-path-sealed-by-contract-tests.md` 부팅 경로 정본 이중화 감수 + 계약 테스트 봉인 (bot-up 동작 4개 명세)
+- `docs/adr/0005-orca-repo-registration-not-reversed.md` orca repo 등록은 설치기가, remove는 안내만 (제거 CLI 부재 / cmd_plugins 선례 / diff 0 범위)
+- `docs/spikes/2026-08-27-windows-spikes.md` S1~S3 실측 전문 (맹글링 규칙·`orca repo add`·`/exit` 주입·데몬 생존·헤드리스 제어 계층·프로세스 판정 검증·함정 3건·계획 반영 사항 9건)
+- `~/.claude/plans/glistening-leaping-valiant.md` Windows 슬라이스 구현 계획 (확정 결정 13개·조사 결과 표·개발 환경/작업 순서/모델 분업·파일별 수정 명세·검증 5단계) — 레포 밖, 세션 산출물
