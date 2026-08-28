@@ -34,6 +34,11 @@ rmtree 실패 / PowerShell `&` 호출 연산자 누락 시 ParserError / Windows
 계정으로 성공) — ADR-0002 "관리자 권한 불필요" 전제, 실사용자 PC에서
 재검증 필요.
 
+**8/28 SKILL.md 본문 플랫폼 분기 완료**(결정 11, 커밋 be5309c — 토큰 수령·
+수동 기동·`DISCORD_STATE_DIR`·동명 세션 확인·Git Bash `/exit` 인코딩 주의·
+신뢰 프롬프트·preflight FAIL 힌트 전부 Windows 병기, SKILL-windows.md 분리 안
+함). Windows 슬라이스 코드·문서 전 구간 완료 — 남은 건 -2.5 macOS 회귀 확인부터.
+
 **연속 답글 초안 1건·#9 이슈 초안 게시 승인 대기 유지**(8/24 결정 기록·
 docs/issues/2026-08-12-claude-code-channel-lease-silent-skip.md). 영상 준비는
 tower 이관 유지(8/12).
@@ -41,21 +46,18 @@ tower 이관 유지(8/12).
 ## 다음 단계
 <!-- 덮어쓰기. 첫 항목 = 다음 세션이 바로 집어들 일 -->
 
--3. **SKILL.md 본문 플랫폼 분기**(다음 세션 첫 일 — 로컬 문서 작업, 안전).
-   결정 11: 3단계 토큰 수령(`pbpaste`→`Get-Clipboard`), 9단계 수동 기동
-   (`tmux new-session`→`orca terminal create`), `DISCORD_STATE_DIR` 지정(pwsh
-   `$env:`), 동명 세션 확인(`ps aux`→`Get-CimInstance`), Git Bash `/exit`
-   전송 시 `MSYS_NO_PATHCONV=1` 주의, 신뢰 프롬프트 통과 단계, preflight FAIL
-   힌트 Windows 병기. 별도 SKILL-windows.md로 안 나눔(문서 이중화 회피).
--2.5. **macOS 회귀 확인** — `pid_alive`(os.kill 폐기)·`_cmd_argv`·`bot_sessions`
-   변경이 macOS 경로도 건드림(공유 헬퍼). macOS 세션에서 `doctor`+`verify` 1회.
--2. **pins.json discord-multiagent 태그 갱신** — 슬라이스 통과 후 1회(계획서
-   원칙). **사용자 승인 필요** — 실제 GitHub `netwaif/discord-multiagent`에
-   태그 push하는 외부 상태 변경.
--1.5. **Windows E2E(사용자 수동)** — 신규 디스코드 테스트 서버 + 봇 앱 2개
+-3. **[다음 세션 첫 일] Windows E2E(사용자 수동)** — 신규 디스코드 테스트 서버 + 봇 앱 2개
    (orch·chat) + 채널 2개. 기존 프로덕션 봇 토큰 재사용 불가(같은 토큰으로
    두 기기 게이트웨이 접속 시 이중 응답). schtasks onlogon은 이 머신에서
    Access Denied 확인됐으므로(위 현재 상태 참고) 실사용자 PC 재검증 겸함.
+   **로컬 커밋 상태 유지, push 안 함**(2026-08-28 결정 — 순서 재배치).
+-2.5. **macOS 회귀 확인** — `pid_alive`(os.kill 폐기)·`_cmd_argv`·`bot_sessions`
+   변경이 macOS 경로도 건드림(공유 헬퍼). macOS 세션에서 `doctor`+`verify` 1회.
+   Windows E2E 뒤, 아래 -2(push) **앞**에 반드시 완료.
+-2. **pins.json discord-multiagent 태그 갱신 + push** — 슬라이스 통과 후 1회(계획서
+   원칙). **게이트 2중**: ①위 -2.5 macOS 회귀 확인 통과 ②사용자 승인(실제 GitHub
+   `netwaif/discord-multiagent`에 태그 push하는 외부 상태 변경) — 순서 무관하게
+   둘 다 있어야 push.
 -1. **bagbio1748님 연속 답글 게시 승인 대기** — 초안 확정본은 8/24 결정 기록에
    전문 수록. 승인 시 채널 1519510111083561021, 답글 id 1541111390444724275
    스레드에 게시(검수 문구 생략 상태 — 필요 시 추가)
@@ -150,6 +152,8 @@ tower 이관 유지(8/12).
 - 2026-08-28 **harnessctl.py Windows Stage A/B(테스트 가능·부수효과 없는 범위) 완료** — preflight·`_process_table`(pwsh Get-CimInstance+self/조상 제외)·`pid_alive`·`mcp_log_dir`·`secure_file`(icacls). 부수 발견 4건(전체 파일 I/O 인코딩·bash bare-name WSL 스텁·MSYS 백슬래시·git objects 읽기전용 rmtree) — 계획서엔 없었지만 거의 모든 명령이 Windows에서 죽던 원인이라 즉시 수정. 42→43 테스트 그린
 - 2026-08-28 **bot_win.py `restart`/`autostart-install`/`-remove`/`-boot` 구현 — orca 실터미널로 end-to-end 실측**(생성→ptyId 매칭→`/exit`→종료 확인→close→재생성→bots.json 갱신, 전 구간 통과). 실측 버그 3건: PowerShell이 명령 위치 따옴표 문자열을 표현식으로 오파싱(`&` 호출 연산자 누락) / `Get-CimInstance` CommandLine 따옴표 포함 경로를 naive split이 깨뜨림(`CommandLineToArgvW`로 교체, harnessctl.py도 동형 수정) / schtasks 에러 인코딩이 에러별 로캘 의존적(mbcs로 전환, remove는 `/query` 선행으로 텍스트 파싱 회피). **한계**: 이 머신에서 `schtasks /create /sc onlogon` Access Denied(`/sc once`는 성공) — ADR-0002 "관리자 권한 불필요" 전제 재검증 필요
 - 2026-08-28 **harnessctl.py Windows 세션 호스트·자동 기동 실배선 완료** — `cmd_pair`가 `bots.json` 생성(Windows 세션명은 호스트 접미사 `orchestrator-<hostname>` — macOS 프로덕션과 같은 계정 쓰면 세션명 겹쳐 채널 연결 로그 없이 스킵되는 8/10 버그 재발 방지, 결정 9). `session_procs()` 한 곳만 Windows 분기(cmdline `-n <세션>` 매칭)하면 `mcp_server_alive`·`judge_codex_tui`·verify/doctor 세션 판정이 호출부 무수정으로 전부 동작. verify에서 브리지·웹훅·TUI는 Windows FAIL 아닌 SKIP 명시(2차 범위 숨기지 않음). 스크래치 폴더 실측으로 `bots.json` 정확한 스키마 확인. 43개 테스트(37 pass+6 skip, 전부 의도)
+- 2026-08-28 **SKILL.md 본문 Windows 플랫폼 분기 완료(결정 11, 커밋 be5309c)** — Windows 슬라이스 코드·문서 전 구간 마무리. 다음은 -2.5 macOS 회귀 확인부터(이 세션은 macOS 접속 수단 없어 보류, 사용자 확인 후 SESSION.md만 선갱신하기로 함)
+- 2026-08-28 **다음 단계 순서 재배치**: Windows E2E(사용자 수동)를 먼저(-3, 로컬 커밋만 유지·push 안 함) → macOS 회귀 확인(-2.5) → pins.json 태그 push(-2, macOS 확인 통과+사용자 승인 2중 게이트). 근거: -2 태그 push는 실제 GitHub 배포라 macOS 회귀 미확인 상태로 먼저 하면 프로덕션(오케·chat-claude·hostinger 공유 헬퍼)이 깨진 채 배포될 위험 — 사용자가 push 보류를 확인해 순서만 재배치, 게이트는 유지
 
 ## 파일 흔적
 <!-- 누적. 만든/고친 파일의 경로를 그대로 적는다. "설정 파일 고침" 같은 산문 금지 -->
@@ -222,3 +226,4 @@ tower 이관 유지(8/12).
 - `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` `_cmd_argv`(CommandLineToArgvW) 신설 — `_is_codex_cmd`·cmd_verify claude 판정에 적용 — 커밋 c90c714
 - `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` 세션 호스트·자동 기동 실배선 — `bots_json_path`·`load_bots_json`·`bot_sessions`·`default_session_name`·`bot_claude_args`·`write_bots_json`(cmd_pair가 호출)·`schtasks_registered`·`WIN_AUTOSTART_TASK`·`_session_root_win`(session_procs 한 곳만 분기)·cmd_doctor/verify/remove/install Windows 실배선 — 커밋 cbfedc0
 - `tests/test_harnessctl.py` Windows 대응 — preflight 5개 플랫폼 분기, 인코딩(`encoding="utf-8"` run() 헬퍼)·경로 구분자(`os.sep`)·icacls 모드 검증 분기, `_bot_sessions()`(실제 bots.json 세션명 읽기 — 리터럴 "orchestrator" 시임 키 오류 수정), MANIFEST/harness_files에 `bot_win.py` 항목, 브리지·웹훅·코덱스TUI 전제 테스트 5개 Windows skip(2차 범위 명시) — 43개(37 pass+6 skip)
+- `plugins/harness-installer/skills/configure-harness/SKILL.md` 본문 Windows 플랫폼 분기(결정 11) — 커밋 be5309c
