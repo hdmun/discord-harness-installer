@@ -217,24 +217,41 @@ tmux new-session -d -s orchestrator '/bin/zsh -lc "cd <설치 루트>; export DI
 tmux new-session -d -s chat-claude '/bin/zsh -lc "cd <설치 루트>/chat; export DISCORD_STATE_DIR=<설치 루트>/chat/.discord-state; exec <설치 루트>/scripts/bot-up.sh -n chat-claude --remote-control chat-claude --channels plugin:discord@claude-plugins-official"'
 ```
 
-Windows: 8단계 `--autostart`는 schtasks onlogon만 등록하고 지금은 아무 것도
-띄우지 않는다(다음 로그온부터 적용, ADR-0002) — 자동 기동 켬/끔과 무관하게
-**두 봇 모두 지금 수동으로 기동해야 한다.** `bots.json`이 기동 정본이라
-이름만 넘기면 된다(락 직렬화·감시자는 `up`이 내부 처리):
+Windows: 봇을 기동하기 전에 설치 루트가 **orca에 레포로 등록돼 있어야 한다**
+(ADR-0005는 "설치기가 한다"로 결정했지만 harnessctl.py·bot_win.py 어디에도
+아직 안 배선돼 있다 — 2026-08-29 실측으로 발견한 구멍, 지금은 수동으로 채운다):
+```
+orca repo add --path <설치 루트>
+```
+(`chat/`은 별도 등록 불필요 — bot_win.py는 터미널을 항상 설치 루트 기준으로
+열고 `chat/`으로는 내부적으로 `cd`한다.) 8단계 `--autostart`는 schtasks
+onlogon만 등록하고 지금은 아무 것도 띄우지 않는다(다음 로그온부터 적용,
+ADR-0002) — 자동 기동 켬/끔과 무관하게 **두 봇 모두 지금 수동으로 기동해야
+한다.** `bots.json`이 기동 정본이라 이름만 넘기면 된다(락 직렬화·감시자는
+`up`이 내부 처리):
 ```
 python <설치 루트>\scripts\bot_win.py restart orchestrator
 python <설치 루트>\scripts\bot_win.py restart chat-claude
 ```
 출력의 `터미널 term_...` 핸들을 받아 적는다. **최초 기동은 Claude Code
-워크스페이스 신뢰 프롬프트에 막힌다** — `wait --for tui-idle`이
-`blockedReason: "codex-trust-workspace"`로 알려준다(스파이크 실측
-2026-08-27). 빈 텍스트 + Enter로 통과시킨다:
+워크스페이스 신뢰 프롬프트에 막힌다.** 실측(2026-08-29, E2E)에선 `wait
+--for tui-idle`에 `blockedReason` 필드가 안 잡혔다 — `terminal read`로 화면을
+직접 확인해야 한다. **기본 선택지가 `❯ No, exit`이라 빈 텍스트+Enter만 치면
+그대로 종료된다** — 위 화살표로 `Yes, I trust this folder`로 이동한 뒤 Enter:
 ```
-orca terminal wait --terminal <핸들> --for tui-idle
+orca terminal read --terminal <핸들>
+```
+`Accessing workspace` / `❯ No, exit` 문구가 보이면:
+```
+orca terminal send --terminal <핸들> --text $'\x1b[A'
+orca terminal read --terminal <핸들>
+```
+(`❯ Yes, I trust this folder`로 바뀐 것을 확인한 뒤)
+```
 orca terminal send --terminal <핸들> --text "" --enter
-orca terminal wait --terminal <핸들> --for tui-idle
 ```
-두 봇 각각(오케스트레이터·수다 클로드) 반복한다.
+두 봇 각각(오케스트레이터·수다 클로드) 반복한다. 이미 신뢰한 폴더는 재기동 시
+프롬프트가 안 뜬다.
 
 ```
 python3 <이 스킬 폴더>/generator/harnessctl.py verify --work-dir <설치 루트> --wait 600

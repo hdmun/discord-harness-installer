@@ -204,6 +204,14 @@ def plugin_cmds(host: str) -> list[list[str]]:
         cmds.append([host, "plugin", "install", f"{name}@{name}"])
     return cmds
 
+def win_exec_argv(argv: list[str]) -> list[str]:
+    """.cmd/.bat 셔임은 CreateProcess가 직접 못 띄운다(WinError 193/2) — cmd.exe /c 경유(bot_win.py 동형)."""
+    if IS_WIN:
+        exe = shutil.which(argv[0])
+        if exe and exe.lower().endswith((".cmd", ".bat")):
+            return ["cmd", "/c", subprocess.list2cmdline([exe, *argv[1:]])]
+    return argv
+
 def cmd_plugins(a) -> None:
     ok = True
     for argv in plugin_cmds(a.host):
@@ -212,7 +220,8 @@ def cmd_plugins(a) -> None:
             print(line)
             continue
         try:
-            r = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+            r = subprocess.run(win_exec_argv(argv), capture_output=True, text=True,
+                                encoding="utf-8", errors="replace", timeout=120)
             failed, detail = r.returncode != 0, (r.stderr or r.stdout).strip()[:200]
         except (FileNotFoundError, subprocess.TimeoutExpired) as e:
             failed, detail = True, str(e)
@@ -241,7 +250,10 @@ def write_state_dir(state_dir: Path, token: str, channel_id: str,
     state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "inbox").mkdir(exist_ok=True)
     env = state_dir / ".env"
-    env.write_text(f"DISCORD_BOT_TOKEN={token}\n", encoding="utf-8")
+    # newline="" 필수 — 기본값이면 Windows에서 \n이 \r\n으로 번역되고, discord
+    # 플러그인 파서가 트레일링 \r을 안 잘라내 토큰 값이 깨진다(실측 2026-08-29,
+    # MCP 로그: "DISCORD_BOT_TOKEN required" — 파일엔 토큰이 멀쩡히 있는데도 발생).
+    env.write_text(f"DISCORD_BOT_TOKEN={token}\n", encoding="utf-8", newline="")
     secure_file(env)
     access = {"dmPolicy": "allowlist", "allowFrom": [approver],
               "groups": {channel_id: {"requireMention": require_mention, "allowFrom": [approver]}},
@@ -329,7 +341,8 @@ def cmd_pair(a) -> None:
         f"ORCH_BOT_TOKEN={tokens['orch']}\n"
         f"CLAUDE_BOT_TOKEN={tokens['claude']}\n"
         f"CODEX_BOT_TOKEN={tokens['codex']}\n"
-        f"GEMINI_BOT_TOKEN={tokens['gemini']}\n", encoding="utf-8")
+        f"GEMINI_BOT_TOKEN={tokens['gemini']}\n",
+        encoding="utf-8", newline="")  # write_state_dir와 동형 CRLF 함정 방지
     secure_file(env_path)
     write_state_dir(work / ".discord-state", tokens["orch"], a.work_channel_id,
                     a.approver_user_id, False)
