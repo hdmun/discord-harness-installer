@@ -13,31 +13,34 @@
 ## 현재 상태
 <!-- 덮어쓰기. 항상 짧게 — 지금 어디까지 왔는지 스냅샷만 -->
 
-**8/27~28 Windows 슬라이스 — 코드 완성, 테스트 전부 그린.** discord-multiagent:
-계약 테스트 9개(`test/test_botup_contract.py`) + `scripts/bot_win.py`
-(up/restart/autostart-install/-remove/-boot — orca 실터미널로 end-to-end 실측
-검증, 3커밋: 2c794d6·675a142·4cad57f). discord-harness-installer: `harnessctl.py`
-Windows 전 구간 배선(preflight/pair/doctor/verify/remove/install, bots.json이
-기동 정본, 세션 판정은 cmdline `-n <세션>` 매칭) — 2커밋(a2ed5db·c90c714·cbfedc0,
-3건). 테스트 43개 전부 그린(37 pass+6 skip, skip 전부 의도된 2차 범위 — 목록은
-파일 흔적). 작업 클론 = `~/repo/ref/discord-multiagent`(실존, core.autocrlf
-false로 재체크아웃 — 기본 클론은 CRLF라 bash 즉사).
+**8/29 Windows E2E 완주(사용자 수동, 이 개발 머신에서) — 실채널 응답까지 확인.**
+preflight→fetch(로컬 미푸시 커밋 반영, 아래 참고)→plugins→pair→install→
+verify(전 항목 OK/SKIP)→오케스트레이터·수다클로드 둘 다 디스코드에서 실응답
+확인(각자 자기 채널 전용 — 정책대로). schtasks onlogon도 관리자 pwsh에서
+재시도해 **성공 확인** — 즉 ADR-0002 "관리자 권한 불필요" 전제는 **틀림**:
+일반 계정 Access Denied, 관리자 계정 성공(정정 필요, 아래 결정 기록 참고).
 
-실측으로 새로 잡은 함정(계획서엔 없던 것들, 전부 코드 반영·커밋됨): 전체
-파일 I/O cp949/UTF-8 인코딩 불일치(37곳) / bash bare-name이 System32 WSL
-스텁을 잡음 / Git Bash(MSYS) 백슬래시 오파싱 / `.git/objects` 읽기전용
-rmtree 실패 / PowerShell `&` 호출 연산자 누락 시 ParserError / Windows
-`Get-CimInstance` CommandLine 따옴표 포함 경로를 naive split이 깨뜨림
-(`CommandLineToArgvW`로 교체, 양쪽 레포) / schtasks 에러 메시지 인코딩이
-에러 종류별로 로캘 의존적. **중요 발견**: 이 개발 머신(샌드박스 추정)에서
-`schtasks /create /sc onlogon`이 비관리자 Access Denied(`/sc once`는 같은
-계정으로 성공) — ADR-0002 "관리자 권한 불필요" 전제, 실사용자 PC에서
-재검증 필요.
+E2E 도중 실측으로 새로 잡은 함정 6건, 전부 코드 반영·**커밋까지 완료**(push는
+안 함): ①`harnessctl.py` cmd_plugins가 `claude.CMD` 서브프로세스 직접 호출 —
+Windows는 `cmd /c` 경유 필요(WinError 2) ②같은 subprocess capture가 cp949로
+디코드하다 em-dash에 크래시 — UTF-8 강제 ③`bot_win.py`: 봇 서브폴더(`chat/`)는
+진짜 git worktree가 아니라 orca `--worktree path:` 셀렉터가 selector_not_found로
+실패 — 터미널은 항상 레포 루트로 열고 `cmd_up`이 `os.chdir`로 이동하게 변경
+(8/28 "전 구간 통과" 실측은 단일 폴더 스크래치 봇만 썼던 것, 오케+수다 조합은
+이번이 첫 실측) ④`bot_win.py` cmd_up이 `DISCORD_STATE_DIR` 미주입 — macOS는
+plist/tmux(호출자)가 하는데 Windows엔 그 호출자가 없었음, `bots.json`의
+`state_dir`로 직접 주입하게 추가 ⑤`harnessctl.py`의 `.env`/`.discord-state/.env`
+write_text가 Windows에서 `\n`→`\r\n` 번역돼 토큰 값이 깨짐(discord 플러그인
+파서가 트레일링 `\r` 안 자름) — `newline=""` 고정 ⑥`orca repo add` 등록이
+ADR-0005 결정만 되고 코드 어디에도 안 배선돼 있었음 — 지금은 SKILL.md에 수동
+단계로 명시(자동 배선은 미착수, 차기 이월 후보).
 
-**8/28 SKILL.md 본문 플랫폼 분기 완료**(결정 11, 커밋 be5309c — 토큰 수령·
-수동 기동·`DISCORD_STATE_DIR`·동명 세션 확인·Git Bash `/exit` 인코딩 주의·
-신뢰 프롬프트·preflight FAIL 힌트 전부 Windows 병기, SKILL-windows.md 분리 안
-함). Windows 슬라이스 코드·문서 전 구간 완료 — 남은 건 -2.5 macOS 회귀 확인부터.
+SKILL.md 신뢰 프롬프트 문구도 정정(커밋 예정) — "빈 텍스트+Enter로 통과"는
+틀림, 기본 선택지가 `❯ No, exit`라 위 화살표로 `Yes, I trust this folder`
+이동 후 Enter 필요(실측).
+
+**8/28 SKILL.md 본문 플랫폼 분기 완료**(결정 11, 커밋 be5309c). Windows
+슬라이스 코드·문서·E2E 전 구간 완료 — 남은 건 -2.5 macOS 회귀 확인부터.
 
 **연속 답글 초안 1건·#9 이슈 초안 게시 승인 대기 유지**(8/24 결정 기록·
 docs/issues/2026-08-12-claude-code-channel-lease-silent-skip.md). 영상 준비는
@@ -46,14 +49,10 @@ tower 이관 유지(8/12).
 ## 다음 단계
 <!-- 덮어쓰기. 첫 항목 = 다음 세션이 바로 집어들 일 -->
 
--3. **[다음 세션 첫 일] Windows E2E(사용자 수동)** — 신규 디스코드 테스트 서버 + 봇 앱 2개
-   (orch·chat) + 채널 2개. 기존 프로덕션 봇 토큰 재사용 불가(같은 토큰으로
-   두 기기 게이트웨이 접속 시 이중 응답). schtasks onlogon은 이 머신에서
-   Access Denied 확인됐으므로(위 현재 상태 참고) 실사용자 PC 재검증 겸함.
-   **로컬 커밋 상태 유지, push 안 함**(2026-08-28 결정 — 순서 재배치).
--2.5. **macOS 회귀 확인** — `pid_alive`(os.kill 폐기)·`_cmd_argv`·`bot_sessions`
-   변경이 macOS 경로도 건드림(공유 헬퍼). macOS 세션에서 `doctor`+`verify` 1회.
-   Windows E2E 뒤, 아래 -2(push) **앞**에 반드시 완료.
+-2.5. **[다음 세션 첫 일] macOS 회귀 확인** — `pid_alive`(os.kill 폐기)·`_cmd_argv`·
+   `bot_sessions` 변경이 macOS 경로도 건드림(공유 헬퍼). macOS 세션에서
+   `doctor`+`verify` 1회. Windows E2E 완주(8/29, 위 현재 상태 참고) 끝났으므로
+   이제 이게 첫 항목 — 아래 -2(push) **앞**에 반드시 완료.
 -2. **pins.json discord-multiagent 태그 갱신 + push** — 슬라이스 통과 후 1회(계획서
    원칙). **게이트 2중**: ①위 -2.5 macOS 회귀 확인 통과 ②사용자 승인(실제 GitHub
    `netwaif/discord-multiagent`에 태그 push하는 외부 상태 변경) — 순서 무관하게
@@ -154,6 +153,10 @@ tower 이관 유지(8/12).
 - 2026-08-28 **harnessctl.py Windows 세션 호스트·자동 기동 실배선 완료** — `cmd_pair`가 `bots.json` 생성(Windows 세션명은 호스트 접미사 `orchestrator-<hostname>` — macOS 프로덕션과 같은 계정 쓰면 세션명 겹쳐 채널 연결 로그 없이 스킵되는 8/10 버그 재발 방지, 결정 9). `session_procs()` 한 곳만 Windows 분기(cmdline `-n <세션>` 매칭)하면 `mcp_server_alive`·`judge_codex_tui`·verify/doctor 세션 판정이 호출부 무수정으로 전부 동작. verify에서 브리지·웹훅·TUI는 Windows FAIL 아닌 SKIP 명시(2차 범위 숨기지 않음). 스크래치 폴더 실측으로 `bots.json` 정확한 스키마 확인. 43개 테스트(37 pass+6 skip, 전부 의도)
 - 2026-08-28 **SKILL.md 본문 Windows 플랫폼 분기 완료(결정 11, 커밋 be5309c)** — Windows 슬라이스 코드·문서 전 구간 마무리. 다음은 -2.5 macOS 회귀 확인부터(이 세션은 macOS 접속 수단 없어 보류, 사용자 확인 후 SESSION.md만 선갱신하기로 함)
 - 2026-08-28 **다음 단계 순서 재배치**: Windows E2E(사용자 수동)를 먼저(-3, 로컬 커밋만 유지·push 안 함) → macOS 회귀 확인(-2.5) → pins.json 태그 push(-2, macOS 확인 통과+사용자 승인 2중 게이트). 근거: -2 태그 push는 실제 GitHub 배포라 macOS 회귀 미확인 상태로 먼저 하면 프로덕션(오케·chat-claude·hostinger 공유 헬퍼)이 깨진 채 배포될 위험 — 사용자가 push 보류를 확인해 순서만 재배치, 게이트는 유지
+- 2026-08-29 **Windows E2E 완주(이 개발 머신, 사용자 수동)** — preflight→fetch→plugins→pair→install→verify(전 항목 OK/SKIP)→오케스트레이터·수다클로드 실채널 응답까지 전 구간 통과. fetch는 pins.json(v0.1.1, 아직 미범프) 대신 fetch 캐시 레포에 `git remote add local-dev <로컬 작업 클론>`+`git fetch local-dev main`+`git checkout FETCH_HEAD`로 로컬 미푸시 커밋(bot_win.py 포함)을 반영해 진행 — pins.json 자체는 안 건드림
+- 2026-08-29 **ADR-0002 전제 "관리자 권한 불필요" 틀림 — 정정 필요**: 일반 계정 `schtasks /create /sc onlogon` Access Denied(8/28 최초 발견에 이어 8/29 재확인), 관리자 권한 pwsh에서는 동일 명령 성공. 실사용자 PC 재검증이라는 이번 -3 목적 자체가 이 결론으로 완결됨 — SKILL.md/ADR-0002 문서 정정은 아직 미착수(차기 이월)
+- 2026-08-29 **Windows E2E 실측 버그 6건 발견·수정·커밋** — discord-multiagent 로컬 클론(2커밋: `c0be076` 터미널 worktree는 항상 레포 루트+`cmd_up`이 `os.chdir`로 봇 폴더 이동, `474c9fb` `cmd_up`이 `DISCORD_STATE_DIR` 미설정 시 `bots.json` state_dir로 주입) / discord-harness-installer(harnessctl.py: cmd_plugins의 `claude.CMD` 서브프로세스 직접호출 WinError 2→`cmd /c` 경유, 동 subprocess capture cp949 크래시→UTF-8 강제, `.env`/`.discord-state/.env` write_text CRLF 오염→`newline=""`). ③번(worktree)의 근본 원인: `chat/`은 git worktree가 아니라 평범한 하위 폴더라 orca `--worktree path:` 셀렉터가 `selector_not_found`로 실패 — 8/28 "bot_win.py 전 구간 통과" 실측은 단일 폴더 스크래치 봇만 검증했던 것이었고 오케+수다(서브폴더) 조합은 이번이 첫 실측이었음이 드러남. `orca repo add` 자동 배선(ADR-0005 결정, 미구현)도 이번에 확인 — SKILL.md에 수동 단계로 명시, 자동화는 차기 이월
+- 2026-08-29 SKILL.md 신뢰 프롬프트 문구 정정: "빈 텍스트+Enter로 통과" 틀림(실측 기본 선택지가 `❯ No, exit`) — `terminal read`로 화면 확인 후 위 화살표로 `Yes, I trust this folder` 이동, Enter로 확정하는 절차로 교체. `wait --for tui-idle`의 `blockedReason` 필드도 실측에선 안 잡혔음(문서에서 그 의존 제거)
 
 ## 파일 흔적
 <!-- 누적. 만든/고친 파일의 경로를 그대로 적는다. "설정 파일 고침" 같은 산문 금지 -->
@@ -227,3 +230,6 @@ tower 이관 유지(8/12).
 - `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` 세션 호스트·자동 기동 실배선 — `bots_json_path`·`load_bots_json`·`bot_sessions`·`default_session_name`·`bot_claude_args`·`write_bots_json`(cmd_pair가 호출)·`schtasks_registered`·`WIN_AUTOSTART_TASK`·`_session_root_win`(session_procs 한 곳만 분기)·cmd_doctor/verify/remove/install Windows 실배선 — 커밋 cbfedc0
 - `tests/test_harnessctl.py` Windows 대응 — preflight 5개 플랫폼 분기, 인코딩(`encoding="utf-8"` run() 헬퍼)·경로 구분자(`os.sep`)·icacls 모드 검증 분기, `_bot_sessions()`(실제 bots.json 세션명 읽기 — 리터럴 "orchestrator" 시임 키 오류 수정), MANIFEST/harness_files에 `bot_win.py` 항목, 브리지·웹훅·코덱스TUI 전제 테스트 5개 Windows skip(2차 범위 명시) — 43개(37 pass+6 skip)
 - `plugins/harness-installer/skills/configure-harness/SKILL.md` 본문 Windows 플랫폼 분기(결정 11) — 커밋 be5309c
+- `~/repo/ref/discord-multiagent` `scripts/bot_win.py` E2E 실측 수정 2건 — `worktree_selector`/`cmd_restart`/`cmd_autostart_boot`(터미널은 항상 레포 루트, `cmd_up`이 `os.chdir`로 봇 폴더 이동, 커밋 `c0be076`) + `cmd_up`(`DISCORD_STATE_DIR` 미설정 시 `bot["state_dir"]` 주입, 커밋 `474c9fb`) — 로컬 커밋만, 미푸시
+- `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` E2E 실측 수정 3건 — `cmd_plugins`에 `win_exec_argv`(`.cmd`/`.bat` `cmd /c` 경유) 신설 + subprocess capture `encoding="utf-8", errors="replace"` + `write_state_dir`·`cmd_pair`의 `.env` write_text에 `newline=""`(CRLF 오염 방지)
+- `plugins/harness-installer/skills/configure-harness/SKILL.md` 신뢰 프롬프트 절차 정정(`terminal read`로 화면 확인→위 화살표로 Yes 선택→Enter) + Windows 9단계에 `orca repo add --path <설치 루트>` 수동 단계 추가(ADR-0005 미배선 확인)
