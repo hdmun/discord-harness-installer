@@ -4,8 +4,8 @@ launchd 자리를 채울 후보로 orca automations를 먼저 검토했으나, a
 (`--prompt`·`--provider`가 필수) — "`python discord_dash.py`를 5분마다" 같은 범용 프로세스
 데몬을 맡을 수 없고, 봇 기동에 필요한 `claude --channels …` 플래그도 전달하지 못한다.
 Windows 서비스(`sc.exe`/nssm)는 세션 0 격리 때문에 GUI 앱인 Orca를 띄우지 못해 ADR-0001과
-상극이다. 남은 것이 `schtasks /sc onlogon`이고, 관리자 권한이 필요 없으며 지연·재시도를
-표현할 수 있어 시작프로그램 폴더보다 낫다.
+상극이다. 남은 것이 `schtasks /sc onlogon`이고, 지연·재시도를 표현할 수 있어 시작프로그램
+폴더보다 낫다.
 
 ## Consequences
 
@@ -26,3 +26,14 @@ Windows 서비스(`sc.exe`/nssm)는 세션 0 격리 때문에 GUI 앱인 Orca를
 부수 효과: 봇 생존 자체는 `orca-terminal-daemon.exe`가 보장하므로 런타임이 내려가도 봇은
 계속 돈다. 다만 그동안 `terminal list`가 `runtime_unavailable`을 내며 **관리가 불가능**하다
 (생성·주입·읽기 전부). 부트스트랩과 `restart`는 런타임 가용을 선행 조건으로 갖는다.
+
+## 2026-08-29 정정 — 관리자 권한 필요
+
+위 "관리자 권한이 필요 없으며"는 **틀렸다**. 일반 계정에서
+`schtasks /create /sc onlogon`은 Access Denied로 실패한다. 관리자 권한 pwsh에서는
+성공한다(8/28 최초 발견, 8/29 재확인). `/sc onlogon`은 트리거 종류와 무관하게
+작업 등록 자체가 관리자 권한을 요구하는 것으로 확인됐다.
+
+영향: `harnessctl.py`의 schtasks 등록 경로, 그리고 이후 folder-bot·codex-discord
+브리지가 각각 추가하는 schtasks 등록 경로 모두 **관리자 pwsh에서 실행해야 한다**는
+전제를 SKILL.md의 자동 기동 단계에 명시한다.

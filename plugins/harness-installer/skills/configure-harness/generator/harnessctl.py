@@ -24,8 +24,7 @@ if IS_WIN:
 SCHEMA_VERSION = 1
 ROLES = ("orch", "claude", "codex", "gemini")
 REPO_NAMES = ("discord-multiagent", "codex-discord", "usage-coach")
-PLUGINS = (("multi-agent-starter", "netwaif/multi-agent-starter"),
-           ("folder-bot", "netwaif/folder-bot"))
+PLUGIN_NAMES = ("multi-agent-starter", "folder-bot")
 BLOCK_START = "<!-- discord-multiagent:start -->"
 BLOCK_END = "<!-- discord-multiagent:end -->"
 ORCH_PLIST_LABEL = "com.discord-multiagent.orchestrator"
@@ -52,14 +51,20 @@ def installed_plugin_version(name: str):
     vers = [d.name for d in base.iterdir() if d.is_dir()]
     return max(vers, key=version_tuple) if vers else None
 
+def pins() -> dict:
+    return json.loads((Path(__file__).resolve().parent / "pins.json").read_text(encoding="utf-8"))
+
+def pin_owner(entry: dict) -> str:
+    """schema_version 2 — owner 미지정 시 netwaif 폴백(결정 2)."""
+    return entry.get("owner", "netwaif")
+
 def repo_url(name: str) -> str:
+    # HARNESS_REPO_BASE는 테스트 시임 우선순위 그대로 보존 — owner 해석은 그 아래.
     base = os.environ.get("HARNESS_REPO_BASE")
     if base:
         return f"{base}/{name}"
-    return f"https://github.com/netwaif/{name}.git"
-
-def pins() -> dict:
-    return json.loads((Path(__file__).resolve().parent / "pins.json").read_text(encoding="utf-8"))
+    owner = pin_owner(pins()["repos"][name])
+    return f"https://github.com/{owner}/{name}.git"
 
 def load_state() -> dict:
     if not state_path().exists():
@@ -130,6 +135,8 @@ def cmd_preflight(a) -> None:
             ("claude", "FAIL", "https://claude.com/claude-code 설치"),
             ("codex", "FAIL", "npm i -g @openai/codex (수다 브리지 필수)"),
             ("agy", "WARN", "없으면 제미나이 봇만 빠짐"),
+            ("bash", "FAIL", "Git for Windows 동봉 — remove의 uninstall.sh 위임,"
+                             " multi-agent-starter .sh 3종에 필요"),
         )
     else:
         tools = (
@@ -143,6 +150,8 @@ def cmd_preflight(a) -> None:
         )
     for tool, miss_level, hint in tools:
         found = shutil.which(tool)
+        if tool == "bash" and found:
+            found = bash_bin()  # WSL 스텁 회피 경로(:85-89) 그대로 재사용
         rep("OK" if found else miss_level, f"{tool}: {found or '없음 — ' + hint}")
     plug = home() / ".claude/plugins/cache/claude-plugins-official/discord"
     rep("OK" if plug.is_dir() else "FAIL",
@@ -178,6 +187,13 @@ def cmd_fetch(a) -> None:
                 sys.exit(f"오류: {name} clone 실패 — {r.stderr.strip()}\n"
                          f"다음 행동: 네트워크 확인 후 fetch 재실행(멱등)")
         else:
+            # owner가 pins에서 바뀌었는데 기존 클론이 남아 있으면(이 머신 포함) origin이
+            # 낡은 owner를 계속 가리켜 조용히 무효가 된다(결정 3) — fetch 전에 정정.
+            expected = repo_url(name)
+            cur_origin = run_git(["remote", "get-url", "origin"], cwd=dst).stdout.strip()
+            if cur_origin and cur_origin.rstrip("/").removesuffix(".git") != expected.rstrip("/").removesuffix(".git"):
+                run_git(["remote", "set-url", "origin", expected], cwd=dst)
+                print(f"fetch: {name} origin 정정 {cur_origin} -> {expected}")
             run_git(["fetch", "--tags", "--quiet", "origin"], cwd=dst)
         if a.latest:
             head = run_git(["rev-parse", "--abbrev-ref", "origin/HEAD"], cwd=dst).stdout.strip()
@@ -186,7 +202,7 @@ def cmd_fetch(a) -> None:
             run_git(["pull", "--ff-only", "--quiet"], cwd=dst)
             ref = "latest"
         else:
-            ref = pin_repos[name]
+            ref = pin_repos[name]["ref"]
             r = run_git(["checkout", "--quiet", ref], cwd=dst)
             if r.returncode != 0:
                 sys.exit(f"오류: {name} 핀 {ref} 체크아웃 실패 — {r.stderr.strip()}\n"
@@ -198,8 +214,13 @@ def cmd_fetch(a) -> None:
     save_state(st)
 
 def plugin_cmds(host: str) -> list[list[str]]:
+    """marketplace add는 같은 이름을 새 source로 덮어쓴다(거부하지 않음 — 실측
+    2026-08-29, 로컬 디렉터리 source로 확인). 그래서 owner가 바뀐 뒤에도 remove
+    단계 없이 add 재호출만으로 재등록이 끝난다(결정 7)."""
     cmds = []
-    for name, repo in PLUGINS:
+    pn = pins()["plugins"]
+    for name in PLUGIN_NAMES:
+        repo = f"{pin_owner(pn[name])}/{name}"
         cmds.append([host, "plugin", "marketplace", "add", repo])
         cmds.append([host, "plugin", "install", f"{name}@{name}"])
     return cmds
@@ -302,10 +323,13 @@ def bot_claude_args(session: str) -> list:
     return ["-n", session, "--remote-control", session,
             "--channels", "plugin:discord@claude-plugins-official"]
 
-def write_bots_json(work: Path) -> list:
+def write_bots_json(work: Path, st: dict) -> list:
     """기동 명령 정본(ADR 결정 4) — Windows bot_win.py가 이 파일을 읽어 up/restart/
     autostart-boot의 claude 인자를 재구성한다. macOS는 아직 읽지 않지만 향후 이관
-    경로이자 대시보드 [약속] "봇·폴더·채널 매핑 표시"의 데이터원."""
+    경로이자 대시보드 [약속] "봇·폴더·채널 매핑 표시"의 데이터원.
+
+    st["overlay"]에 등록해야 cmd_remove의 회수 루프(:932-940 동형)가 이 파일을
+    잡는다 — 미등록이면 "remove 후 diff 0" 계약을 조용히 위반한다(P0-6)."""
     orch, chat = default_session_name("orch"), default_session_name("chat")
     data = {
         "schema_version": 1,
@@ -321,7 +345,8 @@ def write_bots_json(work: Path) -> list:
         ],
     }
     p = bots_json_path(work)
-    p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="")
+    st["overlay"]["bots.json"] = sha256(p)
     return [f"bots.json 생성: {p}"]
 
 def schtasks_registered(name: str) -> bool:
@@ -374,9 +399,9 @@ def cmd_pair(a) -> None:
         wf.unlink()
     for role in ROLES:
         (work / f".bot-token-{role}").unlink()
-    for line in write_bots_json(work):
-        print(line)
     st = load_state()
+    for line in write_bots_json(work, st):
+        print(line)
     st["work_dir"] = str(work)
     st["steps"]["pair"] = now()
     save_state(st)
@@ -835,7 +860,7 @@ def cmd_doctor(a) -> None:
     st = load_state()
     for name in REPO_NAMES:
         got = st.get("repos", {}).get(name)
-        pin = pn["repos"][name]
+        pin = pn["repos"][name]["ref"]
         if not got:
             rep("WARN", f"{name}: fetch 기록 없음 — harnessctl.py fetch 필요")
             continue
@@ -847,9 +872,9 @@ def cmd_doctor(a) -> None:
             rep("WARN", f"{name}: HEAD가 기록과 다름(임의 pull?) — 검증 조합 이탈")
         else:
             rep("OK", f"{name}: {got['ref']}")
-    for pname, _ in PLUGINS:
+    for pname in PLUGIN_NAMES:
         v = installed_plugin_version(pname)
-        need = pn["plugins"][pname]
+        need = pn["plugins"][pname]["ref"]
         if v is None:
             rep("WARN", f"플러그인 {pname} 미설치 — harnessctl.py plugins 필요")
         elif version_tuple(v) < version_tuple(need):

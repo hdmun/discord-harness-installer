@@ -171,7 +171,10 @@ python3 <이 스킬 폴더>/generator/harnessctl.py install --work-dir <설치 �
 표시된다(정상 — 오케스트레이터·수다 클로드 두 봇만 이 슬라이스 대상).
 `--autostart`는 Windows에서 schtasks 등록만 하고(ADR-0002, onlogon은 다음
 로그온부터 적용) **지금 당장 기동하지 않는다** — 9단계에서 두 봇 모두 수동
-기동이 필요하다.
+기동이 필요하다. **schtasks 등록에는 관리자 권한 pwsh가 필요하다**(ADR-0002
+2026-08-29 정정 — 일반 계정은 Access Denied) — `install` 단계를 관리자
+pwsh에서 실행하거나, 최소한 `--autostart` 등록 부분만 관리자 권한으로
+재실행한다.
 
 ### 9. verify + 마무리
 

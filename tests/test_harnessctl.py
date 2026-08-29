@@ -84,7 +84,7 @@ def make_fixture_repos(tmp_path):
     }
     for name, files in (("discord-multiagent", harness_files),
                         ("codex-discord", bridge_files), ("usage-coach", coach_files)):
-        _make_repo(base, name, files, PINS["repos"][name])
+        _make_repo(base, name, files, PINS["repos"][name]["ref"])
     return base
 
 def fetched(tmp_path):
@@ -141,7 +141,7 @@ def test_fetch_checks_out_pin_and_records(tmp_path):
     st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text(encoding="utf-8"))
     for name in ("discord-multiagent", "codex-discord", "usage-coach"):
         assert (tmp_path / ".local/share/discord-harness/repos" / name / ".git").exists()
-        assert st["repos"][name]["ref"] == PINS["repos"][name]
+        assert st["repos"][name]["ref"] == PINS["repos"][name]["ref"]
         assert len(st["repos"][name]["commit"]) == 40
     assert st["steps"]["fetch"]
 
@@ -152,7 +152,7 @@ def test_fetch_idempotent(tmp_path):
 
 def test_fetch_missing_pin_tag_fails_with_hint(tmp_path):
     base = make_fixture_repos(tmp_path)
-    _git(base / "usage-coach", "tag", "-d", PINS["repos"]["usage-coach"])
+    _git(base / "usage-coach", "tag", "-d", PINS["repos"]["usage-coach"]["ref"])
     r = run(tmp_path, "fetch", env_extra={"HARNESS_REPO_BASE": str(base)})
     assert r.returncode != 0
     assert "핀" in r.stderr and "usage-coach" in r.stderr
@@ -160,14 +160,17 @@ def test_fetch_missing_pin_tag_fails_with_hint(tmp_path):
 def test_plugins_dry_run_prints_commands(tmp_path):
     r = run(tmp_path, "plugins", "--dry-run")
     assert r.returncode == 0
-    assert "claude plugin marketplace add netwaif/multi-agent-starter" in r.stdout
+    starter_owner = PINS["plugins"]["multi-agent-starter"]["owner"]
+    folder_owner = PINS["plugins"]["folder-bot"]["owner"]
+    assert f"claude plugin marketplace add {starter_owner}/multi-agent-starter" in r.stdout
     assert "claude plugin install multi-agent-starter@multi-agent-starter" in r.stdout
-    assert "claude plugin marketplace add netwaif/folder-bot" in r.stdout
+    assert f"claude plugin marketplace add {folder_owner}/folder-bot" in r.stdout
     assert "claude plugin install folder-bot@folder-bot" in r.stdout
 
 def test_plugins_codex_host(tmp_path):
     r = run(tmp_path, "plugins", "--host", "codex", "--dry-run")
-    assert "codex plugin marketplace add netwaif/folder-bot" in r.stdout
+    folder_owner = PINS["plugins"]["folder-bot"]["owner"]
+    assert f"codex plugin marketplace add {folder_owner}/folder-bot" in r.stdout
 
 def test_plugins_failure_prints_manual_fallback(tmp_path):
     # PATH 를 비워 claude 실행 자체가 불가능한 상황 → 수동 폴백 안내 + exit 1

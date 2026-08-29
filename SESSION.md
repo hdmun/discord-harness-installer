@@ -13,6 +13,9 @@
 ## 현재 상태
 <!-- 덮어쓰기. 항상 짧게 — 지금 어디까지 왔는지 스냅샷만 -->
 
+**8/29 Phase 0 배관 완료(P0-1~P0-7 코드+문서, pytest 37/6 그린). P0-8(4레포 hdmun
+포크+push)만 사용자 승인 대기 — 정본은 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md`.**
+
 **8/29 Windows E2E 완주(사용자 수동, 이 개발 머신에서) — 실채널 응답까지 확인.**
 preflight→fetch(로컬 미푸시 커밋 반영, 아래 참고)→plugins→pair→install→
 verify(전 항목 OK/SKIP)→오케스트레이터·수다클로드 둘 다 디스코드에서 실응답
@@ -49,14 +52,16 @@ tower 이관 유지(8/12).
 ## 다음 단계
 <!-- 덮어쓰기. 첫 항목 = 다음 세션이 바로 집어들 일 -->
 
--2.5. **[다음 세션 첫 일] macOS 회귀 확인** — `pid_alive`(os.kill 폐기)·`_cmd_argv`·
-   `bot_sessions` 변경이 macOS 경로도 건드림(공유 헬퍼). macOS 세션에서
-   `doctor`+`verify` 1회. Windows E2E 완주(8/29, 위 현재 상태 참고) 끝났으므로
-   이제 이게 첫 항목 — 아래 -2(push) **앞**에 반드시 완료.
--2. **pins.json discord-multiagent 태그 갱신 + push** — 슬라이스 통과 후 1회(계획서
-   원칙). **게이트 2중**: ①위 -2.5 macOS 회귀 확인 통과 ②사용자 승인(실제 GitHub
-   `netwaif/discord-multiagent`에 태그 push하는 외부 상태 변경) — 순서 무관하게
-   둘 다 있어야 push.
+-3. **[다음 세션 첫 일] `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md`
+   정본 진행** — netwaif 푸시 권한 부재 판명(gh api: push:false)으로 옛 -2(태그
+   push)는 실행 불가로 폐기, mac 수급 무기한이라 -2.5 게이트도 축소됐다(아래
+   결정 기록 참고). 이 플랜 파일이 정본, Phase 0(배관)→1(folder-bot)→2(브리지)→
+   3(TUI verify) 순. Phase 0은 P0-1~P0-8(ADR-0002 정정·pins owner화·fetch/마켓플레이스
+   자동정정·bots.json remove 버그·4레포 hdmun 포크).
+-2.5. **macOS 게이트 축소(무기한 대기 아님)** — "내 macOS 기기에 새 pins를 설치하기
+   직전"에만 `doctor`+`verify` 1회. Windows 2차 슬라이스 전체가 이 게이트를
+   요구하지 않는다(플랜 결정 4 근거: `pid_alive` 변경의 유일 호출부는 verify
+   브리지 데몬 판정 한 줄).
 -1. **bagbio1748님 연속 답글 게시 승인 대기** — 초안 확정본은 8/24 결정 기록에
    전문 수록. 승인 시 채널 1519510111083561021, 답글 id 1541111390444724275
    스레드에 게시(검수 문구 생략 상태 — 필요 시 추가)
@@ -157,6 +162,9 @@ tower 이관 유지(8/12).
 - 2026-08-29 **ADR-0002 전제 "관리자 권한 불필요" 틀림 — 정정 필요**: 일반 계정 `schtasks /create /sc onlogon` Access Denied(8/28 최초 발견에 이어 8/29 재확인), 관리자 권한 pwsh에서는 동일 명령 성공. 실사용자 PC 재검증이라는 이번 -3 목적 자체가 이 결론으로 완결됨 — SKILL.md/ADR-0002 문서 정정은 아직 미착수(차기 이월)
 - 2026-08-29 **Windows E2E 실측 버그 6건 발견·수정·커밋** — discord-multiagent 로컬 클론(2커밋: `c0be076` 터미널 worktree는 항상 레포 루트+`cmd_up`이 `os.chdir`로 봇 폴더 이동, `474c9fb` `cmd_up`이 `DISCORD_STATE_DIR` 미설정 시 `bots.json` state_dir로 주입) / discord-harness-installer(harnessctl.py: cmd_plugins의 `claude.CMD` 서브프로세스 직접호출 WinError 2→`cmd /c` 경유, 동 subprocess capture cp949 크래시→UTF-8 강제, `.env`/`.discord-state/.env` write_text CRLF 오염→`newline=""`). ③번(worktree)의 근본 원인: `chat/`은 git worktree가 아니라 평범한 하위 폴더라 orca `--worktree path:` 셀렉터가 `selector_not_found`로 실패 — 8/28 "bot_win.py 전 구간 통과" 실측은 단일 폴더 스크래치 봇만 검증했던 것이었고 오케+수다(서브폴더) 조합은 이번이 첫 실측이었음이 드러남. `orca repo add` 자동 배선(ADR-0005 결정, 미구현)도 이번에 확인 — SKILL.md에 수동 단계로 명시, 자동화는 차기 이월
 - 2026-08-29 SKILL.md 신뢰 프롬프트 문구 정정: "빈 텍스트+Enter로 통과" 틀림(실측 기본 선택지가 `❯ No, exit`) — `terminal read`로 화면 확인 후 위 화살표로 `Yes, I trust this folder` 이동, Enter로 확정하는 절차로 교체. `wait --for tui-idle`의 `blockedReason` 필드도 실측에선 안 잡혔음(문서에서 그 의존 제거)
+- 2026-08-29 **옛 -2(netwaif에 태그 push) 실행 불가 판명** — `gh api repos/netwaif/discord-multiagent` 결과 `push: false, pull: true`(hdmun 계정은 netwaif의 포크만 갖고 있어 push 권한이 없다). mac 수급도 무기한이라 -2.5 게이트를 원래대로 두면 Windows 후속 작업 전체가 동결된다. 그릴링으로 재정박: 상류 3레포+folder-bot 전부 hdmun 포크, pins.json owner 필드 도입(schema_version 2), macOS 게이트는 "내 macOS 기기에 새 pins 설치 직전"으로 축소. 상세·전체 결정 10건은 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md`가 정본
+- 2026-08-29 **folder-bot 플러그인이 macOS 전용임을 신규 발견** — `botctl.py`에 플랫폼 분기 0개(`sys.exit("tmux를 찾을 수 없음")`, `~/Library/LaunchAgents/com.folder-bot.*.plist`). 그런데 `harnessctl.py`의 PLUGINS가 이걸 `claude plugin install`로 깔아줘서 설치기가 Windows에서 안 도는 도구를 말없이 설치하고 있었다 — 2차 슬라이스 플랜에 Phase 1(파일럿)로 편입
+- 2026-08-29 **Phase 0 배관 완료**: ADR-0002 "관리자 권한 불필요" 정정(본문+2026-08-29 절), pins.json schema_version 2(owner 필드, repos 3종+plugins 2종 전부 hdmun/netwaif 혼재 — multi-agent-starter만 netwaif 유지), `repo_url`/`plugin_cmds`/`cmd_doctor`가 pins owner를 읽도록 배선, `cmd_fetch`가 기존 클론의 origin을 pins 기대값과 대조해 자동 정정(다른 remote는 안 건드림), `write_bots_json`이 `st["overlay"]`에 등록되도록 수정(remove 회수 누락 버그, newline="" 병행). `claude plugin marketplace add` 실측: 같은 이름을 다른 repo로 **덮어쓴다**(거부 안 함) — remove 단계 불필요, add 재호출만으로 재등록 성립. preflight에 bash 검사 추가. 테스트 37 passed/6 skipped 기준선 유지(pins 스키마 변경에 맞춰 `tests/test_harnessctl.py` 갱신). P0-8(4레포 hdmun 포크 생성+push)만 사용자 승인 대기로 미착수
 
 ## 파일 흔적
 <!-- 누적. 만든/고친 파일의 경로를 그대로 적는다. "설정 파일 고침" 같은 산문 금지 -->
