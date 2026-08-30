@@ -1,12 +1,12 @@
 {
   "schema_version": 2,
   "repos": {
-    "discord-multiagent": {"ref": "v0.1.1", "owner": "hdmun"},
+    "discord-multiagent": {"ref": "v0.1.2", "owner": "hdmun"},
     "codex-discord": {"ref": "v0.1.5", "owner": "hdmun"},
-    "usage-coach": {"ref": "v0.1.2", "owner": "hdmun"}
+    "usage-coach": {"ref": "v0.1.3", "owner": "hdmun"}
   },
   "plugins": {
     "multi-agent-starter": {"ref": "3.5.0", "owner": "netwaif"},
-    "folder-bot": {"ref": "0.1.5", "owner": "hdmun"}
+    "folder-bot": {"ref": "0.1.6", "owner": "hdmun"}
   }
 }
