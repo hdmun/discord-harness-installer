@@ -1146,8 +1146,13 @@ def cmd_install(a) -> None:
             delegate([bash_bin(), bridge_repo() / "scripts/install.sh"], bridge_repo(),
                      a.dry_run, str(bridge_repo() / "logs"))
         if a.dashboard and IS_WIN:
-            delegate([sys.executable, coach_repo() / "scripts/dash_win.py", "install"],
-                     coach_repo(), a.dry_run, f"schtasks /query /tn {WIN_DASHBOARD_TASK}")
+            dash_script = coach_repo() / "scripts/dash_win.py"
+            if dash_script.exists():
+                delegate([sys.executable, dash_script, "install"],
+                         coach_repo(), a.dry_run, f"schtasks /query /tn {WIN_DASHBOARD_TASK}")
+            else:
+                print(f"[SKIP] 대시보드(usage-coach) 설치 — {dash_script} 없음"
+                      "(pins.json usage-coach ref 확인)")
         elif a.dashboard:
             delegate([bash_bin(), coach_repo() / "scripts/install.sh"], coach_repo(),
                      a.dry_run, "~/.config/usage-coach/")

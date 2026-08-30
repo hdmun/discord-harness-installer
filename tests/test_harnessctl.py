@@ -80,6 +80,7 @@ def make_fixture_repos(tmp_path):
     }
     coach_files = {
         "scripts/install.sh": STUB, "scripts/uninstall.sh": STUB,
+        "scripts/dash_win.py": PY_STUB,
         "discord_dash.py": "# stub\n",
     }
     for name, files in (("discord-multiagent", harness_files),
@@ -430,6 +431,17 @@ def test_delegate_dry_run_prints_commands_only(tmp_path):
         assert os.sep.join(("usage-coach", "scripts", "install.sh")) in r.stdout
         assert os.sep.join(("scripts", "install-autostart.sh")) in r.stdout
     assert not (tmp_path / "Library/LaunchAgents/com.discord-harness.chat-claude.plist").exists()
+
+def test_delegate_dashboard_skip_if_dash_win_missing(tmp_path):
+    if sys.platform != "win32":
+        pytest.skip("dash_win.py 부재 SKIP은 Windows 전용 경로")
+    base, work = _installed(tmp_path)
+    dash_script = tmp_path / ".local/share/discord-harness/repos/usage-coach/scripts/dash_win.py"
+    dash_script.unlink()
+    r = run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate",
+            "--dashboard", "--dry-run")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "[SKIP] 대시보드" in r.stdout and "dash_win.py" in r.stdout and "없음" in r.stdout
 
 def test_delegate_assembles_bridge_envs(tmp_path):
     if sys.platform == "win32":
