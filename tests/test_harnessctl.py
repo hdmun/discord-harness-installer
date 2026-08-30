@@ -414,15 +414,15 @@ def test_delegate_dry_run_prints_commands_only(tmp_path):
             "--dashboard", "--autostart", "--dry-run")
     assert r.returncode == 0, r.stdout + r.stderr
     if sys.platform == "win32":
-        # 브리지·대시보드는 2차 범위라 Windows에서 SKIP — 설치 시도 자체를 안 한다.
-        # 자동 기동은 bot_win.py autostart-install에 위임(dry-run이라 실제 schtasks
-        # 미호출).
-        assert "[SKIP] 브리지" in r.stdout and "codex-discord 2차 범위" in r.stdout
-        assert "[SKIP] 대시보드" in r.stdout
+        # 브리지는 Windows 배선 미완료라 SKIP — 설치 시도 자체를 안 한다.
+        # 대시보드·자동 기동은 각각 dash_win.py install / bot_win.py autostart-install에
+        # 위임(dry-run이라 실제 실행 없이 명령 문자열만 출력).
+        assert "[SKIP] 브리지" in r.stdout and "Phase 2 진행 중" in r.stdout
         assert "install.sh" not in r.stdout
         assert "install-autostart.sh" not in r.stdout
-        assert "위임(dry-run):" in r.stdout and "bot_win.py" in r.stdout
-        assert "autostart-install" in r.stdout
+        assert "위임(dry-run):" in r.stdout
+        assert "dash_win.py" in r.stdout and "install" in r.stdout
+        assert "bot_win.py" in r.stdout and "autostart-install" in r.stdout
     else:
         repos = tmp_path / ".local/share/discord-harness/repos"
         assert f"위임(dry-run): (cd {repos / 'codex-discord'})" in r.stdout
@@ -538,8 +538,6 @@ def test_verify_ok_with_fixture_logs(tmp_path):
     assert "[OK] 코덱스 TUI(codex-live:0.0) codex 가동" in r.stdout
 
 def test_verify_webhook_probe_sends_user_agent(tmp_path):
-    if sys.platform == "win32":
-        pytest.skip("웹훅(usage-coach)은 Windows에서 SKIP — 2차 범위")
     # UA 없는 프로브는 Cloudflare(1010)에 차단돼 오탐 FAIL 을 낸다 — 실측 회귀
     base, work = _installed(tmp_path)
     _mcp_log(tmp_path, work, "Successfully connected to Discord")

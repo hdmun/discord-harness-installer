@@ -282,6 +282,7 @@ def write_state_dir(state_dir: Path, token: str, channel_id: str,
     (state_dir / "access.json").write_text(json.dumps(access, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 WIN_AUTOSTART_TASK = "DiscordHarnessBotWin"  # discord-multiagent scripts/bot_win.py TASK_NAME과 반드시 일치
+WIN_DASHBOARD_TASK = "UsageCoachDashboard"  # usage-coach scripts/install.ps1 $taskName과 반드시 일치
 
 def bots_json_path(work: Path) -> Path:
     return work / "bots.json"
@@ -1067,7 +1068,7 @@ def cmd_verify(a) -> None:
                                 "scripts/bot-restart.sh 로 재기동 후 verify 재실행")
         rep(lvl, f"{label}: {msg}")
     if IS_WIN:
-        rep("SKIP", "브리지(코덱스·제미나이) — codex-discord 2차 범위, 이 수직 슬라이스 밖")
+        rep("SKIP", "브리지(코덱스·제미나이) — Windows 설치·판정 미배선(Phase 2 진행 중, B2-4/B2-6 이후 연결)")
     else:
         bridge_specs = [("코덱스", "daemon.log", "data/daemon.pid")]
         if (bridge_repo() / ".env.gemini").exists():
@@ -1107,9 +1108,7 @@ def cmd_verify(a) -> None:
         for label, p in ((ORCH_PLIST_LABEL, home() / f"Library/LaunchAgents/{ORCH_PLIST_LABEL}.plist"),
                          (CHAT_PLIST_LABEL, chat_plist_path())):
             rep("OK" if p.exists() else "WARN", f"plist {label}: {'있음' if p.exists() else '없음'}")
-    if IS_WIN and not a.skip_webhook:
-        rep("SKIP", "웹훅 — usage-coach 대시보드 2차 범위, 이 수직 슬라이스 밖")
-    elif not a.skip_webhook:
+    if not a.skip_webhook:
         cfg = home() / ".config/usage-coach/discord.json"
         if not cfg.exists():
             rep("WARN", f"웹훅 설정 없음: {cfg}")
@@ -1140,14 +1139,15 @@ def cmd_install(a) -> None:
         out += write_bot_settings(work, st)
     if a.phase in ("delegate", "all"):
         if IS_WIN:
-            print("[SKIP] 브리지(코덱스·제미나이) 설치 — codex-discord 2차 범위, 이 수직 슬라이스 밖")
+            print("[SKIP] 브리지(코덱스·제미나이) 설치 — Windows 설치 미배선(Phase 2 진행 중, B2-4/B2-6 이후 연결)")
         else:
             for line in write_bridge_envs(work):
                 print(line)
             delegate([bash_bin(), bridge_repo() / "scripts/install.sh"], bridge_repo(),
                      a.dry_run, str(bridge_repo() / "logs"))
         if a.dashboard and IS_WIN:
-            print("[SKIP] 대시보드(usage-coach) 설치 — 2차 범위, 이 수직 슬라이스 밖")
+            delegate([sys.executable, coach_repo() / "scripts/dash_win.py", "install"],
+                     coach_repo(), a.dry_run, f"schtasks /query /tn {WIN_DASHBOARD_TASK}")
         elif a.dashboard:
             delegate([bash_bin(), coach_repo() / "scripts/install.sh"], coach_repo(),
                      a.dry_run, "~/.config/usage-coach/")
