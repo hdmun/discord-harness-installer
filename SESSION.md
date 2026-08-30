@@ -13,8 +13,19 @@
 ## 현재 상태
 <!-- 덮어쓰기. 항상 짧게 — 지금 어디까지 왔는지 스냅샷만 -->
 
-**8/29 Phase 0 배관 완료(P0-1~P0-7 코드+문서, pytest 37/6 그린). P0-8(4레포 hdmun
-포크+push)만 사용자 승인 대기 — 정본은 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md`.**
+**8/31 세션 0b(재정박 잔여) 완료 — 정본은 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md`.**
+U-1/U-3(웹훅 verify Windows IS_WIN SKIP 제거+대시보드 delegate를 dash_win.py로 배선,
+커밋 `0bbd805`) / U-2/U-4(usage-coach `dash_win.py` 신설+task명 `UsageCoachDashboard`
+개명+옛 이름 회수+statusline import 계약 복원, 커밋 `dd666a6`) / 5레포 전부 push 완료
+(discord-multiagent는 origin netwaif→hdmun 전환 후 push) / C3-a 태그 3종(discord-multiagent
+v0.1.2·usage-coach v0.1.3·folder-bot 0.1.6) + pins.json 반영·커밋 `4a9900e`·push 완료.
+codex-discord는 v0.1.5 동결 유지(orca 실물 미검증). pytest: installer 38 passed/5
+skipped, usage-coach 9 passed/3 skipped. 다음은 세션 2c(B2-2·B2-4~B2-6, 브리지 Windows
+설치·배선) — 아래 다음 단계 참고.
+
+**관측(미수정, 범위 밖): `cmd_remove`의 coach uninstall.sh 위임(harnessctl.py:950-957)이
+macOS `launchctl` 전용이라 Windows에서 Git Bash 경유해도 조용히 no-op — remove 후에도
+`UsageCoachDashboard` schtasks가 잔존한다. 세션 2c/3 이후 이월 후보로 남겨둔다.**
 
 **8/29 Windows E2E 완주(사용자 수동, 이 개발 머신에서) — 실채널 응답까지 확인.**
 preflight→fetch(로컬 미푸시 커밋 반영, 아래 참고)→plugins→pair→install→
@@ -52,12 +63,12 @@ tower 이관 유지(8/12).
 ## 다음 단계
 <!-- 덮어쓰기. 첫 항목 = 다음 세션이 바로 집어들 일 -->
 
--3. **[다음 세션 첫 일] `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md`
-   정본 진행** — netwaif 푸시 권한 부재 판명(gh api: push:false)으로 옛 -2(태그
-   push)는 실행 불가로 폐기, mac 수급 무기한이라 -2.5 게이트도 축소됐다(아래
-   결정 기록 참고). 이 플랜 파일이 정본, Phase 0(배관)→1(folder-bot)→2(브리지)→
-   3(TUI verify) 순. Phase 0은 P0-1~P0-8(ADR-0002 정정·pins owner화·fetch/마켓플레이스
-   자동정정·bots.json remove 버그·4레포 hdmun 포크).
+-3. **[다음 세션 첫 일] 세션 2c — Phase 2 브리지(B2-2·B2-4~B2-6)** —
+   정본은 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md` 부록 B "세션 2c"
+   프롬프트. Phase 0(배관)·Phase 1(folder-bot)·세션 0b(재정박 잔여) 전부 완료.
+   B2-1(스파이크)·B2-3(pane.mjs 설계+구현)도 완료 — 남은 건 `.cmd` spawn 수정(B2-2)·
+   `bridge_win.py`(B2-4)·folder-bot codex 엔진 해제(B2-5)·설치기 배선(B2-6). 세션
+   시작 시 "세션 시작 실측" 절 명령을 먼저 돌려 의존물 표를 재확인할 것.
 -2.5. **macOS 게이트 축소(무기한 대기 아님)** — "내 macOS 기기에 새 pins를 설치하기
    직전"에만 `doctor`+`verify` 1회. Windows 2차 슬라이스 전체가 이 게이트를
    요구하지 않는다(플랜 결정 4 근거: `pid_alive` 변경의 유일 호출부는 verify
@@ -165,6 +176,8 @@ tower 이관 유지(8/12).
 - 2026-08-29 **옛 -2(netwaif에 태그 push) 실행 불가 판명** — `gh api repos/netwaif/discord-multiagent` 결과 `push: false, pull: true`(hdmun 계정은 netwaif의 포크만 갖고 있어 push 권한이 없다). mac 수급도 무기한이라 -2.5 게이트를 원래대로 두면 Windows 후속 작업 전체가 동결된다. 그릴링으로 재정박: 상류 3레포+folder-bot 전부 hdmun 포크, pins.json owner 필드 도입(schema_version 2), macOS 게이트는 "내 macOS 기기에 새 pins 설치 직전"으로 축소. 상세·전체 결정 10건은 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md`가 정본
 - 2026-08-29 **folder-bot 플러그인이 macOS 전용임을 신규 발견** — `botctl.py`에 플랫폼 분기 0개(`sys.exit("tmux를 찾을 수 없음")`, `~/Library/LaunchAgents/com.folder-bot.*.plist`). 그런데 `harnessctl.py`의 PLUGINS가 이걸 `claude plugin install`로 깔아줘서 설치기가 Windows에서 안 도는 도구를 말없이 설치하고 있었다 — 2차 슬라이스 플랜에 Phase 1(파일럿)로 편입
 - 2026-08-29 **Phase 0 배관 완료**: ADR-0002 "관리자 권한 불필요" 정정(본문+2026-08-29 절), pins.json schema_version 2(owner 필드, repos 3종+plugins 2종 전부 hdmun/netwaif 혼재 — multi-agent-starter만 netwaif 유지), `repo_url`/`plugin_cmds`/`cmd_doctor`가 pins owner를 읽도록 배선, `cmd_fetch`가 기존 클론의 origin을 pins 기대값과 대조해 자동 정정(다른 remote는 안 건드림), `write_bots_json`이 `st["overlay"]`에 등록되도록 수정(remove 회수 누락 버그, newline="" 병행). `claude plugin marketplace add` 실측: 같은 이름을 다른 repo로 **덮어쓴다**(거부 안 함) — remove 단계 불필요, add 재호출만으로 재등록 성립. preflight에 bash 검사 추가. 테스트 37 passed/6 skipped 기준선 유지(pins 스키마 변경에 맞춰 `tests/test_harnessctl.py` 갱신). P0-8(4레포 hdmun 포크 생성+push)만 사용자 승인 대기로 미착수
+- 2026-08-30 **2차 그릴링(12건) — 착수 순서 소진·태그 정책 교체**: 결정 5(④→①→③ 순서)는 Phase 1 완료로 소진, 잔여는 Phase 2 브리지+종속 Phase 3뿐. "전체 완료 시 일괄 태그"를 폐기하고 C3-a(E2E 통과분만 즉시 태그, 미검증분은 핀에 안 넣음)로 교체. usage-coach 상류 포팅이 이미 완료돼 있었음을 발견(8/29 서술 "codexbar Windows 빌드 없음"은 낡은 기록 — 실재 확인) + 계약 불일치 2건(진입점 `dash_win.py` vs 실물 `install.ps1`/`uninstall.ps1`, task 이름 `UsageCoachDashboard` vs 실물 `Usage-Coach-Discord`) 발견 → H2-a(실물을 계약에 맞춘다) 결정. 개발 클론 경로를 `~/repo/_discord-harness/`로 통일(5레포 전부 이동 완료, 옛 `~/repo/_discord.harness` 제거) — 맹글링 규칙 실측: 현행 클라이언트는 `_`와 `.`를 둘 다 `-`로 접는다. 상세는 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md` "2026-08-30 재정박" 절이 정본
+- 2026-08-31 **세션 0b(재정박 잔여) 완료** — U-1(`harnessctl.py:1110` IS_WIN 웹훅 SKIP 제거, 판정 로직 자체는 무수정)·U-3(남는 브리지 SKIP 문구를 "2차 범위" → 실제 사유로 정정, install delegate의 대시보드 SKIP도 `dash_win.py install` 위임으로 교체) / U-2(usage-coach `scripts/dash_win.py` 신설 — install/remove 얇은 래퍼, `--dry-run`이 `.ps1 -DryRun` 패스스루) / U-4(`statusline_command.py:8`의 모듈 스코프 `import coach`를 `main()` 안으로 이동 — "어떤 입력에도 0 종료" 계약이 import 실패 시엔 하단 try/except 밖이라 깨져 있었음) / task명 개명(`Usage-Coach-Discord`→`UsageCoachDashboard`, `uninstall.ps1`이 옛 이름도 회수). 관측(미수정): `cmd_remove`의 coach `uninstall.sh` 위임이 macOS `launchctl` 전용이라 Windows에서 조용히 no-op — remove 후에도 대시보드 schtasks가 잔존하는 사전 존재 버그, 범위 밖이라 이월. C3-a 태그 3종(discord-multiagent v0.1.2·usage-coach v0.1.3·folder-bot 0.1.6) 발행 + pins.json 반영, codex-discord는 v0.1.5 동결 유지. 5레포 전부 push(discord-multiagent origin을 netwaif→hdmun 전환 포함). 세션 시작 실측 결과가 플랜의 스냅샷 표와 일치함을 먼저 확인 후 착수(재정박 10' 규율 적용)
 
 ## 파일 흔적
 <!-- 누적. 만든/고친 파일의 경로를 그대로 적는다. "설정 파일 고침" 같은 산문 금지 -->
@@ -231,13 +244,17 @@ tower 이관 유지(8/12).
 - `docs/adr/0005-orca-repo-registration-not-reversed.md` orca repo 등록은 설치기가, remove는 안내만 (제거 CLI 부재 / cmd_plugins 선례 / diff 0 범위)
 - `docs/spikes/2026-08-27-windows-spikes.md` S1~S3 실측 전문 (맹글링 규칙·`orca repo add`·`/exit` 주입·데몬 생존·헤드리스 제어 계층·프로세스 판정 검증·함정 3건·계획 반영 사항 9건)
 - `~/.claude/plans/glistening-leaping-valiant.md` Windows 슬라이스 구현 계획 (확정 결정 13개·조사 결과 표·개발 환경/작업 순서/모델 분업·파일별 수정 명세·검증 5단계) — 레포 밖, 세션 산출물
-- `~/repo/ref/discord-multiagent`(작업 클론, 실존) `test/test_botup_contract.py` 신설(계약 테스트 9개) — 커밋 2c794d6
-- `~/repo/ref/discord-multiagent` `scripts/bot_win.py` 신설 — `up`(락 직렬화·감시자 fd 분리·스테일 스틸·권한모드 주입, 커밋 675a142) + `restart`/`autostart-install`/`-remove`/`-boot`(orca CLI 연동: `orca_json`/`ensure_runtime`/`orca_terminal_create·list·send·close`, 커밋 4cad57f). `install/overlay-manifest.json`에 등록(커밋 308c768)
+- `~/repo/_discord-harness/discord-multiagent`(작업 클론 — 2026-08-30 `~/repo/ref/discord-multiagent`에서 이동, 옛 경로는 더 이상 없음) `test/test_botup_contract.py` 신설(계약 테스트 9개) — 커밋 2c794d6
+- `~/repo/_discord-harness/discord-multiagent` `scripts/bot_win.py` 신설 — `up`(락 직렬화·감시자 fd 분리·스테일 스틸·권한모드 주입, 커밋 675a142) + `restart`/`autostart-install`/`-remove`/`-boot`(orca CLI 연동: `orca_json`/`ensure_runtime`/`orca_terminal_create·list·send·close`, 커밋 4cad57f). `install/overlay-manifest.json`에 등록(커밋 308c768)
 - `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` Windows Stage A/B — `IS_WIN`·`home()` USERPROFILE 폴백·`secure_file`(icacls)·`bash_bin`·`rmtree_force`·`_process_table_win`·`_exclude_self_and_ancestors`·`pid_alive`·`mcp_log_dir` Windows 분기·`cmd_preflight` Windows 분기 — 커밋 a2ed5db
 - `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` `_cmd_argv`(CommandLineToArgvW) 신설 — `_is_codex_cmd`·cmd_verify claude 판정에 적용 — 커밋 c90c714
 - `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` 세션 호스트·자동 기동 실배선 — `bots_json_path`·`load_bots_json`·`bot_sessions`·`default_session_name`·`bot_claude_args`·`write_bots_json`(cmd_pair가 호출)·`schtasks_registered`·`WIN_AUTOSTART_TASK`·`_session_root_win`(session_procs 한 곳만 분기)·cmd_doctor/verify/remove/install Windows 실배선 — 커밋 cbfedc0
 - `tests/test_harnessctl.py` Windows 대응 — preflight 5개 플랫폼 분기, 인코딩(`encoding="utf-8"` run() 헬퍼)·경로 구분자(`os.sep`)·icacls 모드 검증 분기, `_bot_sessions()`(실제 bots.json 세션명 읽기 — 리터럴 "orchestrator" 시임 키 오류 수정), MANIFEST/harness_files에 `bot_win.py` 항목, 브리지·웹훅·코덱스TUI 전제 테스트 5개 Windows skip(2차 범위 명시) — 43개(37 pass+6 skip)
 - `plugins/harness-installer/skills/configure-harness/SKILL.md` 본문 Windows 플랫폼 분기(결정 11) — 커밋 be5309c
-- `~/repo/ref/discord-multiagent` `scripts/bot_win.py` E2E 실측 수정 2건 — `worktree_selector`/`cmd_restart`/`cmd_autostart_boot`(터미널은 항상 레포 루트, `cmd_up`이 `os.chdir`로 봇 폴더 이동, 커밋 `c0be076`) + `cmd_up`(`DISCORD_STATE_DIR` 미설정 시 `bot["state_dir"]` 주입, 커밋 `474c9fb`) — 로컬 커밋만, 미푸시
+- `~/repo/_discord-harness/discord-multiagent` `scripts/bot_win.py` E2E 실측 수정 2건 — `worktree_selector`/`cmd_restart`/`cmd_autostart_boot`(터미널은 항상 레포 루트, `cmd_up`이 `os.chdir`로 봇 폴더 이동, 커밋 `c0be076`) + `cmd_up`(`DISCORD_STATE_DIR` 미설정 시 `bot["state_dir"]` 주입, 커밋 `474c9fb`) — **push 완료(세션 0b, 2026-08-31)**
 - `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` E2E 실측 수정 3건 — `cmd_plugins`에 `win_exec_argv`(`.cmd`/`.bat` `cmd /c` 경유) 신설 + subprocess capture `encoding="utf-8", errors="replace"` + `write_state_dir`·`cmd_pair`의 `.env` write_text에 `newline=""`(CRLF 오염 방지)
 - `plugins/harness-installer/skills/configure-harness/SKILL.md` 신뢰 프롬프트 절차 정정(`terminal read`로 화면 확인→위 화살표로 Yes 선택→Enter) + Windows 9단계에 `orca repo add --path <설치 루트>` 수동 단계 추가(ADR-0005 미배선 확인)
+- `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` U-1/U-3 — `:1110` IS_WIN 웹훅 SKIP 조건 제거, install delegate의 대시보드 SKIP을 `dash_win.py install` 위임으로 교체(`WIN_DASHBOARD_TASK` 상수 신설), 남는 브리지 SKIP 문구를 실제 사유로 정정 — 커밋 `0bbd805`
+- `~/repo/_discord-harness/usage-coach` `scripts/dash_win.py` 신설(install/remove 래퍼, `--dry-run`→`.ps1 -DryRun` 패스스루) + `scripts/install.ps1`·`scripts/uninstall.ps1`의 `$taskName`을 `UsageCoachDashboard`로 개명(uninstall.ps1이 옛 이름 `Usage-Coach-Discord`도 회수) + `scripts/statusline_command.py:8`의 `import coach`를 `main()` 안으로 이동 — 커밋 `dd666a6`, push 완료
+- `plugins/harness-installer/skills/configure-harness/generator/pins.json` C3-a 태그 반영 — discord-multiagent v0.1.1→v0.1.2, usage-coach v0.1.2→v0.1.3, folder-bot 0.1.5→0.1.6(이월분) — 커밋 `4a9900e`, push 완료. 태그 자체: discord-multiagent `v0.1.2`(hdmun 포크), usage-coach `v0.1.3`(hdmun 포크) 신규 발행·push
+- `tests/test_harnessctl.py` U-1/U-3·U-2 대응 갱신 — `test_verify_webhook_probe_sends_user_agent`의 win32 skip 제거(웹훅 verify가 이제 Windows에서도 동작), `test_delegate_dry_run_prints_commands_only`가 새 SKIP 문구·`dash_win.py`/`bot_win.py` 위임 문자열을 검증하도록 갱신
