@@ -102,7 +102,9 @@ Windows 1차 슬라이스(오케스트레이터 + 수다 클로드 코어)는 20
    (B2-3 커밋 메시지 자기고백: *"orca 실물로 재검증하지 않았다"*).
    대상: `discord-multiagent v0.1.2` · `usage-coach v0.1.3` · `folder-bot 0.1.6`.
 
-6'. **개발 클론 경로를 `~/repo/_discord-harness/`로 통일한다.**
+6'. **개발 클론 경로를 `~/repo/_discord-harness/`로 통일한다.** — ✅ **2026-08-30 완료**
+   (`discord-multiagent`·`codex-discord`·`folder-bot`·`usage-coach` 4개 이동, 옛
+   `~/repo/_discord.harness` 제거. `discord-harness-installer`만 잔여 — 세션 cwd라 마지막.)
    현재 `~/repo/ref/`(무관 레포 35개와 혼재)와 `~/repo/_discord.harness/`가 공존해
    이번 세션에서 실제로 오판 2건을 만들었다. 폴더명은 `_discord.harness`가 아니라
    **`_discord-harness`**(점 제거 — Claude Code 프로젝트 디렉터리 맹글링이 갈렸다).
@@ -144,9 +146,6 @@ for d in ~/repo/_discord-harness/*/; do
   echo "--- $d"; git -C "$d" log -1 --format='%h %ad %s' --date=short; git -C "$d" status -sb | head -1
 done
 ```
-(경로 이동 전이면 `~/repo/ref/{discord-multiagent,codex-discord,folder-bot}` +
-`~/repo/_discord.harness/usage-coach`를 대신 본다.)
-
 결과가 위 의존물 표와 다르면 **표를 먼저 정정하고** 작업을 시작한다.
 
 ---
@@ -190,10 +189,10 @@ done
 - [~] **P0-8 4레포 포크 생성·push** — **포크 생성은 완료**(2026-08-30 확인:
   `hdmun/{discord-multiagent,codex-discord,folder-bot,usage-coach}` 4개 전부 존재,
   `push:true`). **잔여 = push 3건**:
-  - `~/repo/ref/discord-multiagent` — origin이 아직 `netwaif`다. `git remote set-url origin`
+  - `~/repo/_discord-harness/discord-multiagent` — origin이 아직 `netwaif`다. `git remote set-url origin`
     으로 hdmun 전환 후 미푸시 6커밋 push.
-  - `~/repo/ref/folder-bot` — 미푸시 1커밋(`fe59e3d`).
-  - `~/repo/ref/codex-discord` — 미푸시 3커밋(pane 분할·orca 백엔드·리뷰 반영).
+  - `~/repo/_discord-harness/folder-bot` — 미푸시 1커밋(`fe59e3d`).
+  - `~/repo/_discord-harness/codex-discord` — 미푸시 3커밋(pane 분할·orca 백엔드·리뷰 반영).
 
   **verify:** `harnessctl.py fetch` 재실행 시 origin이 hdmun으로 정정되고 핀 체크아웃 성공.
 
@@ -213,7 +212,7 @@ done
 정본은 `config_dir()/bots.json`(전역) — 하네스의 `<work>/bots.json`과 **다른 파일·다른 스키마**다.
 따라서 `bot_win.py`를 그대로 복사할 수 없고, **헬퍼만 재사용**한다.
 
-**재사용할 기존 코드 (`~/repo/ref/discord-multiagent/scripts/bot_win.py`):**
+**재사용할 기존 코드 (`~/repo/_discord-harness/discord-multiagent/scripts/bot_win.py`):**
 - `orca_bin`/`orca_json`/`runtime_ready`/`ensure_runtime`(`:220-259`) — orca 런타임 기동·대기
 - `worktree_selector`(`:262`) — 터미널은 항상 레포 루트, 봇 폴더는 `cmd_up`이 `os.chdir`
   (8/29 실측 버그 ③의 결론 — 봇 서브폴더는 git worktree가 아니라 `selector_not_found`)
@@ -351,7 +350,7 @@ done
   세션을 방해하면 안 된다"*가 깨졌다. `main()` 안으로 내린다(2줄).
   **macOS 게이트 축소분(결정 4)이 이 파일을 덮지 못하므로 선제 수정한다** — 재정박 8' 참조.
 
-**착수 전 확인:** `~/repo/_discord.harness/usage-coach`는 **다른 세션 소유**다.
+**착수 전 확인:** `~/repo/_discord-harness/usage-coach`는 **다른 세션 소유**다.
 push 상태는 깨끗하지만(ahead 0), 그 세션이 아직 돌고 있으면 충돌한다.
 세션 시작 실측으로 확인하고, 진행 중이면 그 세션에 U-2/U-4를 넘긴다.
 
@@ -466,12 +465,11 @@ Opus를 B2-3 이외에 쓰지 말 것 — 나머지는 전례가 있어 판단 �
 | 세션 3 — Phase 3 TUI verify | ⬜ 미착수 |
 | 세션 4 — 마무리 릴리즈 | ⬜ 미착수 |
 
-> **경로 주의.** 재정박 6'에 따라 개발 클론이 `~/repo/_discord-harness/`로 이동한다.
-> 아래 프롬프트의 경로는 **이동 전 현행 경로**다. 세션 0b가 이동을 수행하면
-> 이 부록의 경로를 일괄 치환할 것:
-> `C:\Users\hdmun\repo\ref\{discord-multiagent,codex-discord,folder-bot,discord-harness-installer}`
-> → `C:\Users\hdmun\repo\_discord-harness\...`,
-> `~/repo/_discord.harness/usage-coach` → `~/repo/_discord-harness/usage-coach`.
+> **경로.** 재정박 6'의 이동은 **2026-08-30 완료**됐다. 아래 프롬프트의 경로는
+> 이동 후 기준이다 — `C:\Users\hdmun\repo\_discord-harness\` 아래의
+> `discord-multiagent`·`codex-discord`·`folder-bot`·`usage-coach`.
+> **단 `discord-harness-installer`만 아직 `~/repo/ref/`에 있다** — 세션의 cwd라
+> 마지막에 옮긴다. 옮긴 뒤 이 부록에서 그 경로도 치환할 것.
 
 ## 세션 0 — Phase 0 배관 (Sonnet / medium) ✅ 완료
 
@@ -513,7 +511,7 @@ P0-8(포크 생성·push)은 외부 상태 변경이다. 실행 전에 사용자
    harnessctl.py:1110 의 IS_WIN 웹훅 SKIP 조건을 제거한다. 이어지는 판정 로직은
    한 줄도 고치지 마라. 남는 SKIP 문구를 실제 사유로 교체한다.
 
-2. U-2 / U-4 — 상류 usage-coach 레포에서 (~/repo/_discord.harness/usage-coach).
+2. U-2 / U-4 — 상류 usage-coach 레포에서 (~/repo/_discord-harness/usage-coach).
    착수 전 그 레포가 다른 세션에서 작업 중인지 확인하고, 진행 중이면 멈추고 보고해라.
    - scripts/dash_win.py 신설 (install / remove 얇은 래퍼, pwsh 로 .ps1 호출,
      --dry-run 패스스루). .ps1 2개는 삭제하지 마라.
@@ -524,10 +522,10 @@ P0-8(포크 생성·push)은 외부 상태 변경이다. 실행 전에 사용자
    - 설치기 harnessctl.py 의 install 위임을 dash_win.py install 로 배선.
 
 3. P0-8 push — 외부 상태 변경이다. 실행 전에 사용자 승인을 받아라.
-   - ~/repo/ref/discord-multiagent: origin 이 아직 netwaif 다.
+   - ~/repo/_discord-harness/discord-multiagent: origin 이 아직 netwaif 다.
      git remote set-url origin 으로 hdmun 전환 후 미푸시 6커밋 push.
-   - ~/repo/ref/folder-bot: 미푸시 1커밋 push.
-   - ~/repo/ref/codex-discord: 미푸시 3커밋 push.
+   - ~/repo/_discord-harness/folder-bot: 미푸시 1커밋 push.
+   - ~/repo/_discord-harness/codex-discord: 미푸시 3커밋 push.
 
 4. C3-a 태그·핀 — 외부 상태 변경이다. 실행 전에 사용자 승인을 받아라.
    Verification 절의 "태그·핀 정책" 표대로:
@@ -536,13 +534,28 @@ P0-8(포크 생성·push)은 외부 상태 변경이다. 실행 전에 사용자
    pins.json 을 그에 맞게 갱신하고 커밋한다 (working diff 에 folder-bot 0.1.6 범프가
    이미 있으니 함께 커밋).
 
-5. 경로 이동 (재정박 6' / 7').
-   ~/repo/ref/{discord-multiagent,codex-discord,folder-bot} 를
-   ~/repo/_discord-harness/ 로 옮기고, ~/repo/_discord.harness 를
-   ~/repo/_discord-harness 로 개명한다.
-   앞의 3개는 ~/.claude/projects/ 에 디렉터리가 없으므로 순수 mv 다 (확인하고 옮겨라).
-   discord-harness-installer 는 이 세션의 cwd 이므로 옮기지 마라 — 세션 마감 시점 작업이다.
-   이동 후 이 부록 B 의 경로를 일괄 치환한다.
+5. 경로 이동 (재정박 6' / 7') — 2026-08-30 완료. 잔여만 하면 된다.
+   완료분: discord-multiagent / codex-discord / folder-bot / usage-coach 4개가
+   ~/repo/_discord-harness/ 로 이동했고, 옛 ~/repo/_discord.harness 는 제거됐다.
+   그 3개는 ~/.claude/projects/ 에 디렉터리가 없어(세션이 돈 적 없음) 순수 mv 였다.
+
+   잔여 A — discord-harness-installer 이동. 이 세션의 cwd 이므로 마지막에 한다.
+   ~/.claude/projects/C--Users-hdmun-repo-ref-discord-harness-installer 에
+   31파일 + memory/ 가 있으므로 D1(관측 후 병합)로 처리한다: mv 후 새 세션을
+   한 번 띄워 Claude Code 가 실제로 만드는 디렉터리 이름을 확인하고, 옛 디렉터리
+   내용을 그쪽으로 병합한다. 이름을 계산해서 옮기지 마라 — 맹글링 규칙이
+   결정적이지 않다.
+
+   잔여 B — usage-coach 프로젝트 디렉터리 2벌 병합. 같은 경로인데
+   C--Users-hdmun-repo-_discord.harness-usage-coach (2파일) 와
+   C--Users-hdmun-repo--discord-harness-usage-coach (5파일) 로 갈렸고
+   각각 memory/ 를 갖고 있다. 게다가 이제 물리 경로가 _discord-harness 로 바뀌어
+   세 번째 이름이 생길 수 있다. 새 세션을 usage-coach 에서 한 번 띄워 현행 이름을
+   확인한 뒤 나머지를 병합한다.
+
+   함정: _discord.harness 는 이동 당시 폴더 자체가 잠겨 있어 (어떤 프로세스의 cwd)
+   rename 이 Access denied 로 실패했다. 하위 폴더 이동 + 빈 폴더 제거로 우회했다.
+   installer 이동에서도 같은 일이 생길 수 있다 — 그때는 세션을 먼저 닫아라.
 
 6. SESSION.md 갱신 (섹션 규칙: 목표=고정, 현재상태·다음단계=덮어쓰기,
    결정기록·파일흔적=추가만). 2026-08-30 그릴링 12건을 결정 기록에 추가한다.
@@ -558,7 +571,7 @@ P0-8(포크 생성·push)은 외부 상태 변경이다. 실행 전에 사용자
 
 ```
 작업 폴더 2개를 오간다:
-- 포크 레포: hdmun/folder-bot 클론 (없으면 gh repo clone 후 위치를 사용자에게 확인)
+- 포크 레포: C:\Users\hdmun\repo\_discord-harness\folder-bot
 - 설치기 레포: C:\Users\hdmun\repo\ref\discord-harness-installer
 
 설치기 레포의 docs/superpowers/plans/2026-08-29-windows-2nd-slice.md 를 먼저 읽어라.
@@ -586,11 +599,11 @@ plugins.folder-bot 이 hdmun 을 가리키는지 확인하고, 아니면 멈추�
 ## 세션 2a — B2-1 스파이크만 (Sonnet / low) ✅ 통과
 
 > 결과: `logs/daemon.log`에 `로그인: Codex Bot#4460 / 엔진 codex / 허용 사용자 1명 /
-> 작업폴더 C:\Users\hdmun\repo\ref\codex-discord\.spike-workdir` 기록됨.
+> 작업폴더 C:\Users\hdmun\repo\_discord-harness\codex-discord\.spike-workdir` 기록됨.
 > 데몬 단독 기동은 확인. 게이트 통과로 판정하고 B2-3 이후가 진행됐다.
 
 ```
-작업 폴더: hdmun/codex-discord 클론 (없으면 gh repo clone, 위치는 사용자에게 확인)
+작업 폴더: C:\Users\hdmun\repo\_discord-harness\codex-discord
 
 설치기 레포 C:\Users\hdmun\repo\ref\discord-harness-installer 의
 docs/superpowers/plans/2026-08-29-windows-2nd-slice.md 를 먼저 읽어라.
@@ -626,7 +639,7 @@ logs/daemon.log 에 "로그인:" 이 찍히는지 확인하고, 디스코드 수
 > 아래 원본 프롬프트는 이력으로 보존한다.
 
 ```
-작업 폴더: hdmun/codex-discord 클론
+작업 폴더: C:\Users\hdmun\repo\_discord-harness\codex-discord
 
 설치기 레포의 docs/superpowers/plans/2026-08-29-windows-2nd-slice.md 를 먼저 읽어라.
 
@@ -652,7 +665,7 @@ macOS 무변경 근거, TUI_PANE 키 결정과 사유). 코드는 건드리지 �
 
 ```
 작업 폴더 2개를 오간다:
-- hdmun/codex-discord 클론
+- C:\Users\hdmun\repo\_discord-harness\codex-discord
 - C:\Users\hdmun\repo\ref\discord-harness-installer
 
 설치기 레포의 docs/superpowers/plans/2026-08-29-windows-2nd-slice.md 와,
