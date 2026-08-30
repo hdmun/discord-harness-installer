@@ -120,6 +120,12 @@ Windows 1차 슬라이스(오케스트레이터 + 수다 클로드 코어)는 20
    ※ `ref/{discord-multiagent,codex-discord,folder-bot}`은 프로젝트 디렉터리가
    **없다**(세션이 돈 적 없음) — 순수 `mv`.
 
+   **2026-08-30 실측으로 규칙이 좁혀졌다:** 현행 클라이언트는 `_`와 `.`을 둘 다 `-`로
+   접는다(`C:\Users\hdmun\repo\_discord-harness\X` → `C--Users-hdmun-repo--discord-harness-X`).
+   옛 `_discord.harness`도 같은 이름으로 접히므로 **usage-coach의 세션 기록은 폴더
+   개명·이동에도 그대로 유지됐다** — 점을 뺀 선택(질문 7)이 여기서 이득을 봤다.
+   다만 점을 보존하는 변종 디렉터리도 실재했으므로(구버전 추정) **관측은 계속 한다.**
+
 8'. **macOS 게이트는 유지하되, 근거가 넓어졌다.** 결정 4의 근거는 `discord-multiagent`만
    본 것이었다("macOS `.sh` 전부 무수정"). `usage-coach` `884c95a`는 macOS가 쓰는
    `scripts/statusline-command.sh`를 **42줄 → 3줄 shim으로 교체**했다.
@@ -539,19 +545,27 @@ P0-8(포크 생성·push)은 외부 상태 변경이다. 실행 전에 사용자
    ~/repo/_discord-harness/ 로 이동했고, 옛 ~/repo/_discord.harness 는 제거됐다.
    그 3개는 ~/.claude/projects/ 에 디렉터리가 없어(세션이 돈 적 없음) 순수 mv 였다.
 
+   맹글링 규칙 실측 (2026-08-30, 잔여 B 처리 중 확정):
+   현행 클라이언트는 _ 와 . 를 둘 다 - 로 접는다. 그래서
+   C:\Users\hdmun\repo\_discord-harness\<repo> 는
+   C--Users-hdmun-repo--discord-harness-<repo> 가 된다 (repo- 뒤 하이픈 2개).
+   옛 _discord.harness 도 같은 이름으로 접히므로, 폴더명에서 점을 뺀 선택 덕에
+   usage-coach 의 프로젝트 디렉터리는 이동 후에도 그대로 유지됐다.
+
    잔여 A — discord-harness-installer 이동. 이 세션의 cwd 이므로 마지막에 한다.
    ~/.claude/projects/C--Users-hdmun-repo-ref-discord-harness-installer 에
-   31파일 + memory/ 가 있으므로 D1(관측 후 병합)로 처리한다: mv 후 새 세션을
-   한 번 띄워 Claude Code 가 실제로 만드는 디렉터리 이름을 확인하고, 옛 디렉터리
-   내용을 그쪽으로 병합한다. 이름을 계산해서 옮기지 마라 — 맹글링 규칙이
-   결정적이지 않다.
+   31파일 + memory/ 가 있고, 이건 경로의 ref 부분이 바뀌므로 위 usage-coach 처럼
+   저절로 유지되지 않는다. D1(관측 후 병합)로 처리한다: mv 후 새 세션을 한 번 띄워
+   Claude Code 가 실제로 만드는 디렉터리를 확인하고 옛 내용을 그쪽으로 병합한다.
+   위 규칙대로면 C--Users-hdmun-repo--discord-harness-discord-harness-installer 로
+   예측되지만 실측 데이터가 1점뿐이니 관측을 건너뛰지 마라.
 
-   잔여 B — usage-coach 프로젝트 디렉터리 2벌 병합. 같은 경로인데
-   C--Users-hdmun-repo-_discord.harness-usage-coach (2파일) 와
-   C--Users-hdmun-repo--discord-harness-usage-coach (5파일) 로 갈렸고
-   각각 memory/ 를 갖고 있다. 게다가 이제 물리 경로가 _discord-harness 로 바뀌어
-   세 번째 이름이 생길 수 있다. 새 세션을 usage-coach 에서 한 번 띄워 현행 이름을
-   확인한 뒤 나머지를 병합한다.
+   잔여 B — usage-coach 프로젝트 디렉터리 2벌 — 2026-08-30 해소.
+   두 디렉터리가 같은 세션 id 를 담고 있었고, 옛 점 표기 쪽(90줄)이 접힌 쪽(100줄)의
+   바이트 단위 prefix 임을 cmp 로 확인했다 (정보 손실 0, memory/ 는 양쪽 다 비어 있었음).
+   접힌 쪽이 이동 이후에도 계속 기록되는 현행 디렉터리다. 옛 쪽은 삭제하지 않고
+   C--Users-hdmun-repo-_discord.harness-usage-coach.orphan-2026-08-30 으로 이름만 바꿔
+   비켜 뒀다.
 
    함정: _discord.harness 는 이동 당시 폴더 자체가 잠겨 있어 (어떤 프로세스의 cwd)
    rename 이 Access denied 로 실패했다. 하위 폴더 이동 + 빈 폴더 제거로 우회했다.
