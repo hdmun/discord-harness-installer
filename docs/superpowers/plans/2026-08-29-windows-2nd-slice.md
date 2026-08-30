@@ -103,8 +103,9 @@ Windows 1차 슬라이스(오케스트레이터 + 수다 클로드 코어)는 20
    대상: `discord-multiagent v0.1.2` · `usage-coach v0.1.3` · `folder-bot 0.1.6`.
 
 6'. **개발 클론 경로를 `~/repo/_discord-harness/`로 통일한다.** — ✅ **2026-08-30 완료**
-   (`discord-multiagent`·`codex-discord`·`folder-bot`·`usage-coach` 4개 이동, 옛
-   `~/repo/_discord.harness` 제거. `discord-harness-installer`만 잔여 — 세션 cwd라 마지막.)
+   (`discord-multiagent`·`codex-discord`·`folder-bot`·`usage-coach`·
+   `discord-harness-installer` **5레포 전부** 이동, 옛 `~/repo/_discord.harness` 제거.
+   세션 기록도 전부 보존·병합됐다 — 세션 0b 5단계 참조.)
    현재 `~/repo/ref/`(무관 레포 35개와 혼재)와 `~/repo/_discord.harness/`가 공존해
    이번 세션에서 실제로 오판 2건을 만들었다. 폴더명은 `_discord.harness`가 아니라
    **`_discord-harness`**(점 제거 — Claude Code 프로젝트 디렉터리 맹글링이 갈렸다).
@@ -472,15 +473,14 @@ Opus를 B2-3 이외에 쓰지 말 것 — 나머지는 전례가 있어 판단 �
 | 세션 4 — 마무리 릴리즈 | ⬜ 미착수 |
 
 > **경로.** 재정박 6'의 이동은 **2026-08-30 완료**됐다. 아래 프롬프트의 경로는
-> 이동 후 기준이다 — `C:\Users\hdmun\repo\_discord-harness\` 아래의
-> `discord-multiagent`·`codex-discord`·`folder-bot`·`usage-coach`.
-> **단 `discord-harness-installer`만 아직 `~/repo/ref/`에 있다** — 세션의 cwd라
-> 마지막에 옮긴다. 옮긴 뒤 이 부록에서 그 경로도 치환할 것.
+> 전부 이동 후 기준이며, 5레포 모두 `C:\Users\hdmun\repo\_discord-harness\` 아래에 있다:
+> `discord-multiagent`·`codex-discord`·`folder-bot`·`usage-coach`·`discord-harness-installer`.
+> `~/repo/ref/` 아래에는 하네스 관련 레포가 더 이상 없다.
 
 ## 세션 0 — Phase 0 배관 (Sonnet / medium) ✅ 완료
 
 ```
-작업 폴더: C:\Users\hdmun\repo\ref\discord-harness-installer
+작업 폴더: C:\Users\hdmun\repo\_discord-harness\discord-harness-installer
 
 먼저 docs/superpowers/plans/2026-08-29-windows-2nd-slice.md 를 읽어라. 그게 정본이다.
 
@@ -503,7 +503,7 @@ P0-8(포크 생성·push)은 외부 상태 변경이다. 실행 전에 사용자
 ## 세션 0b — 재정박 잔여 (Sonnet / medium, 사용자 게이트 2곳) ⬜ 다음 할 일
 
 ```
-작업 폴더: C:\Users\hdmun\repo\ref\discord-harness-installer
+작업 폴더: C:\Users\hdmun\repo\_discord-harness\discord-harness-installer
 
 먼저 docs/superpowers/plans/2026-08-29-windows-2nd-slice.md 를 읽어라. 그게 정본이다.
 특히 "2026-08-30 재정박" 절이 이 세션의 지시서다.
@@ -540,39 +540,41 @@ P0-8(포크 생성·push)은 외부 상태 변경이다. 실행 전에 사용자
    pins.json 을 그에 맞게 갱신하고 커밋한다 (working diff 에 folder-bot 0.1.6 범프가
    이미 있으니 함께 커밋).
 
-5. 경로 이동 (재정박 6' / 7') — 2026-08-30 완료. 잔여만 하면 된다.
-   완료분: discord-multiagent / codex-discord / folder-bot / usage-coach 4개가
-   ~/repo/_discord-harness/ 로 이동했고, 옛 ~/repo/_discord.harness 는 제거됐다.
-   그 3개는 ~/.claude/projects/ 에 디렉터리가 없어(세션이 돈 적 없음) 순수 mv 였다.
+5. 경로 이동 (재정박 6' / 7') — 2026-08-30 **전부 완료**. 이 항목은 할 일이 없다.
+   5레포(discord-multiagent / codex-discord / folder-bot / usage-coach /
+   discord-harness-installer)가 ~/repo/_discord-harness/ 로 모였고,
+   옛 ~/repo/_discord.harness 는 제거됐다. 앞의 3개는 ~/.claude/projects/ 에
+   디렉터리가 없어(세션이 돈 적 없음) 순수 mv 였다.
 
-   맹글링 규칙 실측 (2026-08-30, 잔여 B 처리 중 확정):
+   맹글링 규칙 실측 (2026-08-30 확정, 2점으로 검증):
    현행 클라이언트는 _ 와 . 를 둘 다 - 로 접는다. 그래서
    C:\Users\hdmun\repo\_discord-harness\<repo> 는
    C--Users-hdmun-repo--discord-harness-<repo> 가 된다 (repo- 뒤 하이픈 2개).
    옛 _discord.harness 도 같은 이름으로 접히므로, 폴더명에서 점을 뺀 선택 덕에
    usage-coach 의 프로젝트 디렉터리는 이동 후에도 그대로 유지됐다.
+   installer 이동에서 이 규칙으로 예측한 이름이 그대로 맞았다.
 
-   잔여 A — discord-harness-installer 이동. 이 세션의 cwd 이므로 마지막에 한다.
-   ~/.claude/projects/C--Users-hdmun-repo-ref-discord-harness-installer 에
-   31파일 + memory/ 가 있고, 이건 경로의 ref 부분이 바뀌므로 위 usage-coach 처럼
-   저절로 유지되지 않는다. D1(관측 후 병합)로 처리한다: mv 후 새 세션을 한 번 띄워
-   Claude Code 가 실제로 만드는 디렉터리를 확인하고 옛 내용을 그쪽으로 병합한다.
-   위 규칙대로면 C--Users-hdmun-repo--discord-harness-discord-harness-installer 로
-   예측되지만 실측 데이터가 1점뿐이니 관측을 건너뛰지 마라.
+   세션 기록 처리 결과 — usage-coach: 두 디렉터리가 같은 세션 id 를 담고 있었고,
+   옛 점 표기 쪽(90줄)이 접힌 쪽(100줄)의 바이트 단위 prefix 임을 cmp 로 확인했다
+   (정보 손실 0, memory/ 는 양쪽 다 비어 있었음). 접힌 쪽이 현행이다.
+   installer: 옛 C--Users-hdmun-repo-ref-discord-harness-installer 의 31파일을
+   새 C--Users-hdmun-repo--discord-harness-discord-harness-installer 로 병합했고
+   해시 충돌 0, memory/ 는 양쪽 다 비어 있었다.
+   두 옛 디렉터리 모두 삭제하지 않고 .orphan-2026-08-30 접미사로 비켜 뒀다.
 
-   잔여 B — usage-coach 프로젝트 디렉터리 2벌 — 2026-08-30 해소.
-   두 디렉터리가 같은 세션 id 를 담고 있었고, 옛 점 표기 쪽(90줄)이 접힌 쪽(100줄)의
-   바이트 단위 prefix 임을 cmp 로 확인했다 (정보 손실 0, memory/ 는 양쪽 다 비어 있었음).
-   접힌 쪽이 이동 이후에도 계속 기록되는 현행 디렉터리다. 옛 쪽은 삭제하지 않고
-   C--Users-hdmun-repo-_discord.harness-usage-coach.orphan-2026-08-30 으로 이름만 바꿔
-   비켜 뒀다.
-
-   함정: _discord.harness 는 이동 당시 폴더 자체가 잠겨 있어 (어떤 프로세스의 cwd)
-   rename 이 Access denied 로 실패했다. 하위 폴더 이동 + 빈 폴더 제거로 우회했다.
-   installer 이동에서도 같은 일이 생길 수 있다 — 그때는 세션을 먼저 닫아라.
+   함정 (다음에 폴더를 옮길 때 재발한다): 옮기려는 폴더를 cwd 로 쓰는 프로세스가
+   있으면 rename 이 Access denied 로 실패한다. _discord.harness 가 그랬고,
+   하위 폴더 이동 + 빈 폴더 제거로 우회했다. installer 는 세션을 닫고 별도 pwsh
+   창에서 옮겨야 했다 — 세션 안에서는 자기 cwd 를 옮길 수 없다.
 
 6. SESSION.md 갱신 (섹션 규칙: 목표=고정, 현재상태·다음단계=덮어쓰기,
    결정기록·파일흔적=추가만). 2026-08-30 그릴링 12건을 결정 기록에 추가한다.
+
+   파일 흔적 절의 경로 정정도 같이 한다. :234 / :235 / :241 이 ~/repo/ref/discord-multiagent
+   를 가리키는데 그 경로는 더 이상 없다 (~/repo/_discord-harness/discord-multiagent 로
+   이동). 기록을 지우는 것이 아니라 경로만 실존값으로 바꾼다 — 프로젝트 CLAUDE.md 의
+   "기록에 적힌 파일 경로는 실존 확인 후 사용한다. 없으면 재탐색하고 기록을 정정한다"
+   규율에 해당한다.
 
 완료 조건:
 - python -m pytest tests/ -q 그린 (기준선 37 passed / 6 skipped)
@@ -586,7 +588,7 @@ P0-8(포크 생성·push)은 외부 상태 변경이다. 실행 전에 사용자
 ```
 작업 폴더 2개를 오간다:
 - 포크 레포: C:\Users\hdmun\repo\_discord-harness\folder-bot
-- 설치기 레포: C:\Users\hdmun\repo\ref\discord-harness-installer
+- 설치기 레포: C:\Users\hdmun\repo\_discord-harness\discord-harness-installer
 
 설치기 레포의 docs/superpowers/plans/2026-08-29-windows-2nd-slice.md 를 먼저 읽어라.
 Phase 1 (F1-1 ~ F1-4) 만 수행한다.
@@ -619,7 +621,7 @@ plugins.folder-bot 이 hdmun 을 가리키는지 확인하고, 아니면 멈추�
 ```
 작업 폴더: C:\Users\hdmun\repo\_discord-harness\codex-discord
 
-설치기 레포 C:\Users\hdmun\repo\ref\discord-harness-installer 의
+설치기 레포 C:\Users\hdmun\repo\_discord-harness\discord-harness-installer 의
 docs/superpowers/plans/2026-08-29-windows-2nd-slice.md 를 먼저 읽어라.
 
 B2-1 스파이크 하나만 한다. 코드를 고치지 마라. 확인만 하고 결과를 보고한다.
@@ -680,7 +682,7 @@ macOS 무변경 근거, TUI_PANE 키 결정과 사유). 코드는 건드리지 �
 ```
 작업 폴더 2개를 오간다:
 - C:\Users\hdmun\repo\_discord-harness\codex-discord
-- C:\Users\hdmun\repo\ref\discord-harness-installer
+- C:\Users\hdmun\repo\_discord-harness\discord-harness-installer
 
 설치기 레포의 docs/superpowers/plans/2026-08-29-windows-2nd-slice.md 와,
 세션 2b 가 남긴 docs/pane-mjs-design.md 를 먼저 읽어라.
@@ -720,7 +722,7 @@ macOS .sh 무수정이 성공 기준이다.
 ## 세션 3 — Phase 3 TUI verify 판정 (Sonnet / medium)
 
 ```
-작업 폴더: C:\Users\hdmun\repo\ref\discord-harness-installer
+작업 폴더: C:\Users\hdmun\repo\_discord-harness\discord-harness-installer
 
 docs/superpowers/plans/2026-08-29-windows-2nd-slice.md 를 먼저 읽어라.
 Phase 3 (T3-1, T3-2) 만 수행한다.
@@ -744,7 +746,7 @@ Phase 3 (T3-1, T3-2) 만 수행한다.
 ## 세션 4 — 마무리 릴리즈 (Sonnet / low, 사용자 게이트)
 
 ```
-작업 폴더: C:\Users\hdmun\repo\ref\discord-harness-installer
+작업 폴더: C:\Users\hdmun\repo\_discord-harness\discord-harness-installer
 
 docs/superpowers/plans/2026-08-29-windows-2nd-slice.md 의 Verification 절을 읽어라.
 
