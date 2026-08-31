@@ -76,6 +76,7 @@ def make_fixture_repos(tmp_path):
     }
     bridge_files = {
         "scripts/install.sh": STUB, "scripts/uninstall.sh": STUB,
+        "scripts/bridge_win.py": PY_STUB,
         "src/index.mjs": "// stub\n",
     }
     coach_files = {
@@ -415,13 +416,14 @@ def test_delegate_dry_run_prints_commands_only(tmp_path):
             "--dashboard", "--autostart", "--dry-run")
     assert r.returncode == 0, r.stdout + r.stderr
     if sys.platform == "win32":
-        # 브리지는 Windows 배선 미완료라 SKIP — 설치 시도 자체를 안 한다.
-        # 대시보드·자동 기동은 각각 dash_win.py install / bot_win.py autostart-install에
-        # 위임(dry-run이라 실제 실행 없이 명령 문자열만 출력).
-        assert "[SKIP] 브리지" in r.stdout and "Phase 2 진행 중" in r.stdout
+        # 브리지·대시보드·자동 기동 모두 각각 bridge_win.py install / dash_win.py
+        # install / bot_win.py autostart-install에 위임(dry-run이라 실제 실행 없이
+        # 명령 문자열만 출력, B2-6).
+        assert "브리지 환경 조립:" in r.stdout  # write_bridge_envs는 플랫폼 무관 실행
         assert "install.sh" not in r.stdout
         assert "install-autostart.sh" not in r.stdout
         assert "위임(dry-run):" in r.stdout
+        assert "bridge_win.py" in r.stdout and "install" in r.stdout
         assert "dash_win.py" in r.stdout and "install" in r.stdout
         assert "bot_win.py" in r.stdout and "autostart-install" in r.stdout
     else:
@@ -443,9 +445,19 @@ def test_delegate_dashboard_skip_if_dash_win_missing(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     assert "[SKIP] 대시보드" in r.stdout and "dash_win.py" in r.stdout and "없음" in r.stdout
 
+def test_delegate_bridge_skip_if_bridge_win_missing(tmp_path):
+    if sys.platform != "win32":
+        pytest.skip("bridge_win.py 부재 SKIP은 Windows 전용 경로")
+    base, work = _installed(tmp_path)
+    bridge_script = tmp_path / ".local/share/discord-harness/repos/codex-discord/scripts/bridge_win.py"
+    bridge_script.unlink()
+    r = run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate", "--dry-run")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "[SKIP] 브리지" in r.stdout and "bridge_win.py" in r.stdout and "없음" in r.stdout
+
 def test_delegate_assembles_bridge_envs(tmp_path):
-    if sys.platform == "win32":
-        pytest.skip("브리지(codex-discord) 설치는 Windows에서 SKIP — 2차 범위(이 수직 슬라이스 밖)")
+    # write_bridge_envs(work)는 B2-6부터 플랫폼 무관으로 항상 실행된다 —
+    # 실제 브리지 설치(bridge_win.py/install.sh 위임) 성패와 무관하게 .env는 조립된다.
     base, work = _installed(tmp_path)
     r = run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate", "--dry-run")
     assert r.returncode == 0, r.stdout + r.stderr

@@ -1067,26 +1067,30 @@ def cmd_verify(a) -> None:
                                 "(claude mcp list 등)의 로그일 수 있음. "
                                 "scripts/bot-restart.sh 로 재기동 후 verify 재실행")
         rep(lvl, f"{label}: {msg}")
-    if IS_WIN:
-        rep("SKIP", "브리지(코덱스·제미나이) — Windows 설치·판정 미배선(Phase 2 진행 중, B2-4/B2-6 이후 연결)")
+    bridge_specs = [("코덱스", "daemon.log", "data/daemon.pid")]
+    if (bridge_repo() / ".env.gemini").exists():
+        bridge_specs.append(("제미나이", "daemon-gemini.log", "data-gemini/daemon.pid"))
     else:
-        bridge_specs = [("코덱스", "daemon.log", "data/daemon.pid")]
-        if (bridge_repo() / ".env.gemini").exists():
-            bridge_specs.append(("제미나이", "daemon-gemini.log", "data-gemini/daemon.pid"))
-        else:
-            rep("WARN", "제미나이: 브리지 .env.gemini 없음 — 미구성으로 건너뜀")
-        for label, logname, pidrel in bridge_specs:
-            lvl, msg = judge_bridge(logname)
-            rep(lvl, f"{label}: {msg}")
-            pid_p = bridge_repo() / pidrel
-            alive = False
-            if pid_p.exists():
-                try:
-                    alive = pid_alive(int(pid_p.read_text(encoding="utf-8").split()[0]))
-                except ValueError:
-                    pass
-            rep("OK" if alive else "WARN",
-                f"{label} 데몬 {'생존' if alive else '죽음/미기동'}: {pid_p}")
+        rep("WARN", "제미나이: 브리지 .env.gemini 없음 — 미구성으로 건너뜀")
+    for label, logname, pidrel in bridge_specs:
+        lvl, msg = judge_bridge(logname)  # 로그 파일 읽기라 플랫폼 무관(B2-6)
+        rep(lvl, f"{label}: {msg}")
+        pid_p = bridge_repo() / pidrel
+        alive = False
+        if pid_p.exists():
+            try:
+                alive = pid_alive(int(pid_p.read_text(encoding="utf-8").split()[0]))
+            except ValueError:
+                pass
+        rep("OK" if alive else "WARN",
+            f"{label} 데몬 {'생존' if alive else '죽음/미기동'}: {pid_p}")
+    if IS_WIN:
+        # judge_codex_tui → session_procs → _session_root_win은 cmdline "-n <세션>"
+        # 매칭인데 orca 터미널 안의 codex에는 그 인자가 없다(pane-mjs-design.md §5.4
+        # 실측: orca는 터미널→PID 매핑 자체를 제공하지 않는다) — 여기서 판정하면
+        # 오탐 FAIL이 난다. Windows TUI 판정은 Phase 3(T3-1, _tui_root_win 신설) 소관.
+        rep("SKIP", "코덱스 TUI 판정 — Windows 세션 프로세스 매칭 미구현(Phase 3 T3-1 소관)")
+    else:
         tui = judge_codex_tui()
         if tui:
             rep(*tui)
@@ -1138,11 +1142,16 @@ def cmd_install(a) -> None:
         out += apply_seeds(work, st)
         out += write_bot_settings(work, st)
     if a.phase in ("delegate", "all"):
+        for line in write_bridge_envs(work):
+            print(line)
         if IS_WIN:
-            print("[SKIP] 브리지(코덱스·제미나이) 설치 — Windows 설치 미배선(Phase 2 진행 중, B2-4/B2-6 이후 연결)")
+            bridge_script = bridge_repo() / "scripts/bridge_win.py"
+            if bridge_script.exists():
+                delegate([sys.executable, bridge_script, "install"], bridge_repo(),
+                         a.dry_run, str(bridge_repo() / "logs"))
+            else:
+                print(f"[SKIP] 브리지(코덱스) 설치 — {bridge_script} 없음 (pins.json codex-discord ref 확인)")
         else:
-            for line in write_bridge_envs(work):
-                print(line)
             delegate([bash_bin(), bridge_repo() / "scripts/install.sh"], bridge_repo(),
                      a.dry_run, str(bridge_repo() / "logs"))
         if a.dashboard and IS_WIN:
