@@ -13,6 +13,35 @@
 ## 현재 상태
 <!-- 덮어쓰기. 항상 짧게 — 지금 어디까지 왔는지 스냅샷만 -->
 
+**9/1~9/2 세션 2c 실물 검증 완료 — B2-2/4/5/6 3레포 push까지 끝남.**
+직전 세션(같은 이름)이 구현·커밋만 하고 "orca 실물 미검증" 상태로 끝난 것을
+이어서 완주. codex-discord `.env`(CODEX_BOT_TOKEN)가 자리표시자였음을 발견 →
+사용자가 새 디스코드 봇 앱 발급, 첫 토큰은 재조회로 무효화돼 재발급 1회 더
+받음. 검증 도중 실물 버그 3건 발견·수정·커밋(전부 codex-discord):
+①`db80d88` `rollout.mjs`/`bridge_win.py`의 `SESSIONS_ROOT`가 `CODEX_HOME`
+환경변수를 무시하고 `~/.codex`로 하드코딩 — 이 개발 머신은 Orca가
+`CODEX_HOME`을 자체 관리 홈(`%APPDATA%\orca\codex-runtime-home\home`)으로
+리다이렉트해둬서 롤아웃을 영원히 못 찾고 있었음(디스코드 경고 "180초 내
+미생성"으로만 드러남, 자체 폴백이라 무해했지만 원인은 진짜). ②`f623613`+
+`445e5e1` `pane.orca.mjs`가 orca CLI의 모든 `--json` 응답 봉투(`{id,ok,
+result:{...}}`)를 top-level에서 읽고 있어(`list.terminals`/`res.status`/
+`res.tail`/`showRes.connected` 전부 undefined) `paneHasCodex`가 **한 번도
+true를 반환한 적이 없었다** — catch가 삼켜 "unknown"으로만 보여 코덱스가
+없는 것처럼 보였음. 같이 발견한 `terminals[].title`이 탭 이름이 아니라
+프로세스가 덮어쓰는 동적 창 제목이라(탭 이름은 `--include-visual-layouts`의
+`tabs[].title`에만 있음) 릴레이도 `bridge_win.py`의 tui-up/tui-restart/stop
+좀비 터미널 누적도 같은 근본 원인(title 오매칭)이었음 — `find_terminal_by_
+tab_title` 헬퍼로 통일. 수정 후 디스코드 실채널 호명 → "안녕하세요! 👋" 실응답
++ daemon.log "TUI tail 연결" 확인. 완료조건 4개 전부 충족: 실응답·로그인
+로그·codex.exe 생존(orca 터미널)·installer pytest(41 passed/4 skipped).
+`docs/pane-mjs-design.md` §9도 실측대로 정정(`73f1ed2`). 3레포 push 완료
+(codex-discord `73f1ed2`·folder-bot `6037b5d`·installer `e59f1c4`, 사용자
+승인 받고 진행). **codex-discord는 아직 태그 미발행**(v0.1.5 동결 그대로) —
+이번 실물 검증 통과로 C3-a 태그 자격 생겼음, 다음 단계 참고.
+
+macOS `tui-up.sh`도 `SESSIONS_ROOT` 동형 하드코딩이지만 이번 세션 범위
+밖(Windows 전용 검증) — 고치지 않고 이월.
+
 **8/31 세션 0b(재정박 잔여) 완료 — 정본은 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md`.**
 U-1/U-3(웹훅 verify Windows IS_WIN SKIP 제거+대시보드 delegate를 dash_win.py로 배선,
 커밋 `0bbd805`) / U-2/U-4(usage-coach `dash_win.py` 신설+task명 `UsageCoachDashboard`
@@ -63,12 +92,20 @@ tower 이관 유지(8/12).
 ## 다음 단계
 <!-- 덮어쓰기. 첫 항목 = 다음 세션이 바로 집어들 일 -->
 
--3. **[다음 세션 첫 일] 세션 2c — Phase 2 브리지(B2-2·B2-4~B2-6)** —
-   정본은 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md` 부록 B "세션 2c"
-   프롬프트. Phase 0(배관)·Phase 1(folder-bot)·세션 0b(재정박 잔여) 전부 완료.
-   B2-1(스파이크)·B2-3(pane.mjs 설계+구현)도 완료 — 남은 건 `.cmd` spawn 수정(B2-2)·
-   `bridge_win.py`(B2-4)·folder-bot codex 엔진 해제(B2-5)·설치기 배선(B2-6). 세션
-   시작 시 "세션 시작 실측" 절 명령을 먼저 돌려 의존물 표를 재확인할 것.
+-4. **[다음 세션 첫 일] codex-discord C3-a 태그 발행 + pins.json 반영** — 세션 2c
+   실물 검증(9/1~9/2)을 orca 실채널 호명까지 통과했으니 C3-a 정책(실증분만 즉시
+   태그)대로 v0.1.6(또는 다음 마이너) 태그 발행 → `pins.json`의 codex-discord
+   ref를 v0.1.5→새 태그로 갱신·커밋·push. 지금 pins는 여전히 v0.1.5(동결값)라
+   실제 검증된 코드(`73f1ed2`)와 핀이 어긋나 있는 상태.
+-3.5. **Phase 3 후보 — `judge_codex_tui` Windows 지원** — 현재 verify는
+   Windows에서 이 판정만 SKIP 유지 중(`harnessctl.py` 주석: orca가 터미널→PID
+   매핑을 안 줌). 이번 세션에서 실제 codex.exe PID(`tasklist`)는 잡을 수
+   있었음이 확인됐으니, PID 매핑 방법 자체는 재검토 여지가 있음 — 착수 전
+   `docs/pane-mjs-design.md` §9와 대조할 것.
+-3. macOS `tui-up.sh`의 `SESSIONS_ROOT` 하드코딩 정정 — codex-discord
+   `rollout.mjs`/`bridge_win.py`는 이번에 `CODEX_HOME` 우선으로 고쳤는데
+   (`db80d88`) macOS 스크립트는 그대로. Orca를 쓰는 macOS 사용자도 같은 함정을
+   겪을 수 있음(미확인 — 이 개발 머신 관측이 mac에서도 재현되는지부터 확인).
 -2.5. **macOS 게이트 축소(무기한 대기 아님)** — "내 macOS 기기에 새 pins를 설치하기
    직전"에만 `doctor`+`verify` 1회. Windows 2차 슬라이스 전체가 이 게이트를
    요구하지 않는다(플랜 결정 4 근거: `pid_alive` 변경의 유일 호출부는 verify
@@ -178,6 +215,8 @@ tower 이관 유지(8/12).
 - 2026-08-29 **Phase 0 배관 완료**: ADR-0002 "관리자 권한 불필요" 정정(본문+2026-08-29 절), pins.json schema_version 2(owner 필드, repos 3종+plugins 2종 전부 hdmun/netwaif 혼재 — multi-agent-starter만 netwaif 유지), `repo_url`/`plugin_cmds`/`cmd_doctor`가 pins owner를 읽도록 배선, `cmd_fetch`가 기존 클론의 origin을 pins 기대값과 대조해 자동 정정(다른 remote는 안 건드림), `write_bots_json`이 `st["overlay"]`에 등록되도록 수정(remove 회수 누락 버그, newline="" 병행). `claude plugin marketplace add` 실측: 같은 이름을 다른 repo로 **덮어쓴다**(거부 안 함) — remove 단계 불필요, add 재호출만으로 재등록 성립. preflight에 bash 검사 추가. 테스트 37 passed/6 skipped 기준선 유지(pins 스키마 변경에 맞춰 `tests/test_harnessctl.py` 갱신). P0-8(4레포 hdmun 포크 생성+push)만 사용자 승인 대기로 미착수
 - 2026-08-30 **2차 그릴링(12건) — 착수 순서 소진·태그 정책 교체**: 결정 5(④→①→③ 순서)는 Phase 1 완료로 소진, 잔여는 Phase 2 브리지+종속 Phase 3뿐. "전체 완료 시 일괄 태그"를 폐기하고 C3-a(E2E 통과분만 즉시 태그, 미검증분은 핀에 안 넣음)로 교체. usage-coach 상류 포팅이 이미 완료돼 있었음을 발견(8/29 서술 "codexbar Windows 빌드 없음"은 낡은 기록 — 실재 확인) + 계약 불일치 2건(진입점 `dash_win.py` vs 실물 `install.ps1`/`uninstall.ps1`, task 이름 `UsageCoachDashboard` vs 실물 `Usage-Coach-Discord`) 발견 → H2-a(실물을 계약에 맞춘다) 결정. 개발 클론 경로를 `~/repo/_discord-harness/`로 통일(5레포 전부 이동 완료, 옛 `~/repo/_discord.harness` 제거) — 맹글링 규칙 실측: 현행 클라이언트는 `_`와 `.`를 둘 다 `-`로 접는다. 상세는 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md` "2026-08-30 재정박" 절이 정본
 - 2026-08-31 **세션 0b(재정박 잔여) 완료** — U-1(`harnessctl.py:1110` IS_WIN 웹훅 SKIP 제거, 판정 로직 자체는 무수정)·U-3(남는 브리지 SKIP 문구를 "2차 범위" → 실제 사유로 정정, install delegate의 대시보드 SKIP도 `dash_win.py install` 위임으로 교체) / U-2(usage-coach `scripts/dash_win.py` 신설 — install/remove 얇은 래퍼, `--dry-run`이 `.ps1 -DryRun` 패스스루) / U-4(`statusline_command.py:8`의 모듈 스코프 `import coach`를 `main()` 안으로 이동 — "어떤 입력에도 0 종료" 계약이 import 실패 시엔 하단 try/except 밖이라 깨져 있었음) / task명 개명(`Usage-Coach-Discord`→`UsageCoachDashboard`, `uninstall.ps1`이 옛 이름도 회수). 관측(미수정): `cmd_remove`의 coach `uninstall.sh` 위임이 macOS `launchctl` 전용이라 Windows에서 조용히 no-op — remove 후에도 대시보드 schtasks가 잔존하는 사전 존재 버그, 범위 밖이라 이월. C3-a 태그 3종(discord-multiagent v0.1.2·usage-coach v0.1.3·folder-bot 0.1.6) 발행 + pins.json 반영, codex-discord는 v0.1.5 동결 유지. 5레포 전부 push(discord-multiagent origin을 netwaif→hdmun 전환 포함). 세션 시작 실측 결과가 플랜의 스냅샷 표와 일치함을 먼저 확인 후 착수(재정박 10' 규율 적용)
+- 2026-09-01/02 **세션 2c 실물 검증 완료(코덱스 호명 실응답)**: fetch 캐시(`~/.local/share/discord-harness/repos/codex-discord`)에 로컬-dev 트릭으로 미푸시 커밋 반영 후 `harnessctl.py install --phase delegate` 시도 → schtasks 등록만 관리자 권한 필요(ADR-0002 기존 한계, 우회해서 up/tui-up 직접 호출로 진행). 검증 도중 실물 버그 3건 순차 발견: ①`CODEX_HOME` 무시(리다이렉트 환경서 롤아웃 영구 미검출) ②`pane.orca.mjs`가 orca CLI JSON 응답 봉투(`result`)를 언랩 안 해 `paneHasCodex`가 처음부터 늘 false ③`terminals[].title`이 탭 이름이 아니라 동적 창 제목이라 title 매칭이 구조적으로 항상 실패(zombie 터미널 누적의 원인이기도 함). 셋 다 codex-discord에 수정·커밋(`db80d88`·`f623613`·`445e5e1`) + `docs/pane-mjs-design.md` §9 정정(`73f1ed2`). 수정 후 디스코드 실채널 호명 → 실응답("안녕하세요! 👋") + daemon.log "TUI tail 연결" 확인 — 완료조건 4개(실응답·로그인 로그·codex.exe 생존·installer pytest 41 passed/4 skipped) 전부 충족. 3레포(codex-discord·folder-bot·discord-harness-installer) 사용자 승인 받고 push 완료. codex-discord 태그는 아직 미발행(다음 단계 -4)
+- 2026-09-01 **codex 봇 토큰 재발급 1회 필요했음**: 사용자가 처음 발급한 토큰이 TokenInvalid로 거부됨(디스코드 봇 토큰은 1회성 표시라 포탈 재조회로 무효화 추정) — Reset Token으로 재발급받아 해결. 향후 봇 토큰 안내 시 "발급 즉시 사용, 포탈 재방문 전에" 강조할 것
 
 ## 파일 흔적
 <!-- 누적. 만든/고친 파일의 경로를 그대로 적는다. "설정 파일 고침" 같은 산문 금지 -->
@@ -258,3 +297,7 @@ tower 이관 유지(8/12).
 - `~/repo/_discord-harness/usage-coach` `scripts/dash_win.py` 신설(install/remove 래퍼, `--dry-run`→`.ps1 -DryRun` 패스스루) + `scripts/install.ps1`·`scripts/uninstall.ps1`의 `$taskName`을 `UsageCoachDashboard`로 개명(uninstall.ps1이 옛 이름 `Usage-Coach-Discord`도 회수) + `scripts/statusline_command.py:8`의 `import coach`를 `main()` 안으로 이동 — 커밋 `dd666a6`, push 완료
 - `plugins/harness-installer/skills/configure-harness/generator/pins.json` C3-a 태그 반영 — discord-multiagent v0.1.1→v0.1.2, usage-coach v0.1.2→v0.1.3, folder-bot 0.1.5→0.1.6(이월분) — 커밋 `4a9900e`, push 완료. 태그 자체: discord-multiagent `v0.1.2`(hdmun 포크), usage-coach `v0.1.3`(hdmun 포크) 신규 발행·push
 - `tests/test_harnessctl.py` U-1/U-3·U-2 대응 갱신 — `test_verify_webhook_probe_sends_user_agent`의 win32 skip 제거(웹훅 verify가 이제 Windows에서도 동작), `test_delegate_dry_run_prints_commands_only`가 새 SKIP 문구·`dash_win.py`/`bot_win.py` 위임 문자열을 검증하도록 갱신
+- `~/repo/_discord-harness/codex-discord` `src/rollout.mjs` `SESSIONS_ROOT`이 `process.env.CODEX_HOME` 우선(미설정 시 `~/.codex` 폴백) + `scripts/bridge_win.py` `cmd_tui_up`의 `sessions_root`도 동형 — 커밋 `db80d88`
+- `~/repo/_discord-harness/codex-discord` `src/pane.orca.mjs` `lookupHandle`의 `candidates.sort` — `lastOutputAt`(숫자) 비교를 `.localeCompare`(문자열 전용)로 하던 버그를 뺄셈 비교로 교체 — 커밋 `f623613`
+- `~/repo/_discord-harness/codex-discord` `src/pane.orca.mjs` — `lookupHandle`/`readTail`/`showTerminal`이 orca CLI JSON 응답을 top-level에서 읽던 것을 `result`(`readTail`/`showTerminal`은 `result.terminal`까지) 언랩으로 정정 + `lookupHandle`을 `--include-visual-layouts`의 `tabs[].title` 매칭으로 교체(`tabTerminalHandle` 신설) / `scripts/bridge_win.py` `find_terminal_by_tab_title` 헬퍼 신설 — `cmd_stop`·`cmd_tui_up`·`cmd_tui_restart` 3곳의 flat-title 오매칭 교체 — 커밋 `445e5e1`
+- `~/repo/_discord-harness/codex-discord` `docs/pane-mjs-design.md` §9 "미확인" 절을 실측 확정 기록으로 교체(JSON 봉투 실제 스키마·CODEX_HOME 함정) — 커밋 `73f1ed2`
