@@ -13,6 +13,26 @@
 ## 현재 상태
 <!-- 덮어쓰기. 항상 짧게 — 지금 어디까지 왔는지 스냅샷만 -->
 
+**9/2 세션 3(Phase 3 T3-1/T3-2) 완료 — 코덱스 TUI verify 판정 Windows 지원.**
+정본 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md` "세션 3" 절.
+`_tui_root_win` 신설(orca가 pwsh에 넘기는 `-EncodedCommand`를 base64/UTF-16LE
+복호화해 그 안에 `CODEX_WORKDIR` 리터럴이 있는 pwsh를 루트로 삼음 — orca는
+터미널→PID 매핑을 CLI로 안 주고 codex는 claude 봇과 달리 `-n <세션>` 마커도
+없어서 나온 접근). `session_procs`가 workdir 파라미터로 Windows 실경로를
+`_tui_root_win`으로 분기. 덤으로 `_rollout_exists`도 세션 2c와 동일한
+`CODEX_HOME` 하드코딩 버그를 발견해 같이 고침(plan 문서의 "이미 이식성 있음"
+주장은 무효 — json.loads 비교 얘기였지 루트 경로 얘기가 아니었음). `cmd_verify`의
+Windows SKIP 분기 제거 — `judge_codex_tui()`를 양 플랫폼 공통 한 줄로 통일.
+테스트: 기존 3개 언스킵(HARNESS_FAKE_PANES 경로라 `_tui_root_win` 자체는 안
+타는 기존 갭 확인 — `_live_bots_seams`가 mac 리터럴 세션명 고정이라 Windows
+호스트 접미사와 안 맞는 것도 같이 드러나 orch/chat 인자로 확장) + 신규 1개
+(`HARNESS_FAKE_PANES` 없이 진짜 Windows 경로를 태우는 유일한 테스트). `run()`
+헬퍼도 `CODEX_HOME`을 HOME 기반으로 고정(호스트가 이미 설정해뒀으면 픽스처
+격리가 깨짐 — 이 개발 머신이 정확히 그 사례). 실물 검증: 살아있는 codex
+TUI에 verify → OK, codex.exe 강제 종료 → FAIL 정확히 전환, tui-up 재기동 →
+다시 OK. pytest 45 passed/1 skipped(무관 autostart 미구현, 사전 존재).
+커밋 `6897fc7`(installer) — **push는 사용자 승인 대기**.
+
 **9/1~9/2 세션 2c 실물 검증 완료 — B2-2/4/5/6 3레포 push까지 끝남.**
 직전 세션(같은 이름)이 구현·커밋만 하고 "orca 실물 미검증" 상태로 끝난 것을
 이어서 완주. codex-discord `.env`(CODEX_BOT_TOKEN)가 자리표시자였음을 발견 →
@@ -93,12 +113,14 @@ tower 이관 유지(8/12).
 <!-- 덮어쓰기. 첫 항목 = 다음 세션이 바로 집어들 일 -->
 
 -4. ~~codex-discord C3-a 태그 발행 + pins.json 반영~~ — **2026-09-02 완료**
-   (`v0.1.6` 태그, pins 커밋 `97decf5`, push 완료). 아래가 이제 다음 순번.
--3.5. **[다음 세션 첫 일] Phase 3 — `judge_codex_tui` Windows 지원** — 현재 verify는
-   Windows에서 이 판정만 SKIP 유지 중(`harnessctl.py` 주석: orca가 터미널→PID
-   매핑을 안 줌). 이번 세션에서 실제 codex.exe PID(`tasklist`)는 잡을 수
-   있었음이 확인됐으니, PID 매핑 방법 자체는 재검토 여지가 있음 — 착수 전
-   `docs/pane-mjs-design.md` §9와 대조할 것.
+   (`v0.1.6` 태그, pins 커밋 `97decf5`, push 완료).
+-3.5. ~~Phase 3 — `judge_codex_tui` Windows 지원~~ — **2026-09-02 완료**
+   (`_tui_root_win` 신설, `session_procs`/`_rollout_exists` Windows 실경로 배선,
+   `cmd_verify` SKIP 분기 제거, 신규 테스트 1개+언스킵 3개, 실물 검증(TUI OK→
+   codex 강제종료 FAIL→재기동 OK) — 커밋 `6897fc7`, **push는 사용자 승인 대기**).
+   상세는 위 현재 상태 "9/2 세션 3" 절 참고.
+-3.2. **[다음 세션 첫 일] 세션 3 push 승인 받기** — `6897fc7`(installer)만 남음.
+   승인 시 push → SESSION.md 갱신(이 항목 제거).
 -3. macOS `tui-up.sh`의 `SESSIONS_ROOT` 하드코딩 정정 — codex-discord
    `rollout.mjs`/`bridge_win.py`는 이번에 `CODEX_HOME` 우선으로 고쳤는데
    (`db80d88`) macOS 스크립트는 그대로. Orca를 쓰는 macOS 사용자도 같은 함정을
@@ -215,6 +237,7 @@ tower 이관 유지(8/12).
 - 2026-09-01/02 **세션 2c 실물 검증 완료(코덱스 호명 실응답)**: fetch 캐시(`~/.local/share/discord-harness/repos/codex-discord`)에 로컬-dev 트릭으로 미푸시 커밋 반영 후 `harnessctl.py install --phase delegate` 시도 → schtasks 등록만 관리자 권한 필요(ADR-0002 기존 한계, 우회해서 up/tui-up 직접 호출로 진행). 검증 도중 실물 버그 3건 순차 발견: ①`CODEX_HOME` 무시(리다이렉트 환경서 롤아웃 영구 미검출) ②`pane.orca.mjs`가 orca CLI JSON 응답 봉투(`result`)를 언랩 안 해 `paneHasCodex`가 처음부터 늘 false ③`terminals[].title`이 탭 이름이 아니라 동적 창 제목이라 title 매칭이 구조적으로 항상 실패(zombie 터미널 누적의 원인이기도 함). 셋 다 codex-discord에 수정·커밋(`db80d88`·`f623613`·`445e5e1`) + `docs/pane-mjs-design.md` §9 정정(`73f1ed2`). 수정 후 디스코드 실채널 호명 → 실응답("안녕하세요! 👋") + daemon.log "TUI tail 연결" 확인 — 완료조건 4개(실응답·로그인 로그·codex.exe 생존·installer pytest 41 passed/4 skipped) 전부 충족. 3레포(codex-discord·folder-bot·discord-harness-installer) 사용자 승인 받고 push 완료. codex-discord 태그는 아직 미발행(다음 단계 -4)
 - 2026-09-01 **codex 봇 토큰 재발급 1회 필요했음**: 사용자가 처음 발급한 토큰이 TokenInvalid로 거부됨(디스코드 봇 토큰은 1회성 표시라 포탈 재조회로 무효화 추정) — Reset Token으로 재발급받아 해결. 향후 봇 토큰 안내 시 "발급 즉시 사용, 포탈 재방문 전에" 강조할 것
 - 2026-09-02 **codex-discord C3-a 태그 발행** — 세션 2c 실물 검증 통과로 자격 발생, `v0.1.6` 태그(hdmun 포크) + `pins.json` 반영·커밋 `97decf5`·push. v0.1.5 동결 해제. 다음 순번은 Phase 3(`judge_codex_tui` Windows 지원)
+- 2026-09-02 **세션 3(Phase 3 T3-1/T3-2) 완료** — orca가 터미널→PID 매핑을 CLI로 제공하지 않고(pane-mjs-design.md §9) codex TUI는 claude 봇과 달리 `-n <세션>` cmdline 마커도 없어, `_session_root_win` 재사용이 불가능하다는 plan의 사전 분석이 실측으로 확정됨. 해결책은 orca가 pwsh에 넘기는 `-EncodedCommand`(base64/UTF-16LE)를 복호화해 그 안에 남아있는 `bridge_win.py`의 `Set-Location -LiteralPath '<CODEX_WORKDIR>'` 리터럴로 워크디렉터리 매칭 — 세션명이 아니라 워크디렉터리로 루트를 찾는 첫 사례. 덤으로 `_rollout_exists`도 세션 2c와 동일한 `CODEX_HOME` 하드코딩 버그였음을 발견(plan의 "이미 이식성 있음" 판단은 무효화 — json.loads 비교 얘기였지 루트 경로 하드코딩엔 적용 안 됐음). 테스트 인프라 갭도 발견: 기존 3개 코덱스 TUI 테스트가 전부 `HARNESS_FAKE_PANES` 시임을 타서 `_tui_root_win`(진짜 Windows 코드)은 한 번도 실행된 적 없었음 — 신규 테스트로 메움. 부수 발견: `_live_bots_seams()` 헬퍼가 mac 리터럴 세션명("orchestrator")을 하드코딩해 Windows 호스트 접미사(결정 9)와 어긋나는 채 방치돼 있었음(항상 skip돼 안 드러났던 것) — orch/chat 인자로 확장. `run()` 테스트 헬퍼도 호스트의 실제 `CODEX_HOME`(이 개발 머신은 Orca가 설정)을 상속해 픽스처 격리를 깨는 걸 발견해 고정. 커밋 `6897fc7`(installer) — push는 사용자 승인 대기
 
 ## 파일 흔적
 <!-- 누적. 만든/고친 파일의 경로를 그대로 적는다. "설정 파일 고침" 같은 산문 금지 -->
@@ -299,3 +322,5 @@ tower 이관 유지(8/12).
 - `~/repo/_discord-harness/codex-discord` `src/pane.orca.mjs` `lookupHandle`의 `candidates.sort` — `lastOutputAt`(숫자) 비교를 `.localeCompare`(문자열 전용)로 하던 버그를 뺄셈 비교로 교체 — 커밋 `f623613`
 - `~/repo/_discord-harness/codex-discord` `src/pane.orca.mjs` — `lookupHandle`/`readTail`/`showTerminal`이 orca CLI JSON 응답을 top-level에서 읽던 것을 `result`(`readTail`/`showTerminal`은 `result.terminal`까지) 언랩으로 정정 + `lookupHandle`을 `--include-visual-layouts`의 `tabs[].title` 매칭으로 교체(`tabTerminalHandle` 신설) / `scripts/bridge_win.py` `find_terminal_by_tab_title` 헬퍼 신설 — `cmd_stop`·`cmd_tui_up`·`cmd_tui_restart` 3곳의 flat-title 오매칭 교체 — 커밋 `445e5e1`
 - `~/repo/_discord-harness/codex-discord` `docs/pane-mjs-design.md` §9 "미확인" 절을 실측 확정 기록으로 교체(JSON 봉투 실제 스키마·CODEX_HOME 함정) — 커밋 `73f1ed2`
+- `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` Phase 3 T3-1/T3-2 — `_tui_root_win`(EncodedCommand base64/UTF-16LE 복호화 후 workdir 리터럴 매칭) 신설, `session_procs`가 `workdir` 파라미터로 Windows 실경로 분기, `_rollout_exists` `CODEX_HOME` 인식, `cmd_verify`의 Windows SKIP 분기 제거(`judge_codex_tui()` 플랫폼 무관 한 줄로 통일), `judge_codex_tui`의 `fix` 문구 플랫폼별 분기 — 커밋 `6897fc7`
+- `tests/test_harnessctl.py` Phase 3 대응 — `run()`에 `CODEX_HOME` 고정 추가, `_live_bots_seams(orch, chat)` 세션명 파라미터화, 기존 3개 codex TUI 테스트 win32-skip 제거(+ fix 문구·"tmux 세션" 오기 정정), 신규 `_encoded_command_containing`/`test_tui_root_win_real_process_table_finds_codex`(HARNESS_FAKE_PANES 없이 `_tui_root_win` 실경로를 직접 태우는 유일한 테스트) — 커밋 `6897fc7`
