@@ -92,12 +92,9 @@ tower 이관 유지(8/12).
 ## 다음 단계
 <!-- 덮어쓰기. 첫 항목 = 다음 세션이 바로 집어들 일 -->
 
--4. **[다음 세션 첫 일] codex-discord C3-a 태그 발행 + pins.json 반영** — 세션 2c
-   실물 검증(9/1~9/2)을 orca 실채널 호명까지 통과했으니 C3-a 정책(실증분만 즉시
-   태그)대로 v0.1.6(또는 다음 마이너) 태그 발행 → `pins.json`의 codex-discord
-   ref를 v0.1.5→새 태그로 갱신·커밋·push. 지금 pins는 여전히 v0.1.5(동결값)라
-   실제 검증된 코드(`73f1ed2`)와 핀이 어긋나 있는 상태.
--3.5. **Phase 3 후보 — `judge_codex_tui` Windows 지원** — 현재 verify는
+-4. ~~codex-discord C3-a 태그 발행 + pins.json 반영~~ — **2026-09-02 완료**
+   (`v0.1.6` 태그, pins 커밋 `97decf5`, push 완료). 아래가 이제 다음 순번.
+-3.5. **[다음 세션 첫 일] Phase 3 — `judge_codex_tui` Windows 지원** — 현재 verify는
    Windows에서 이 판정만 SKIP 유지 중(`harnessctl.py` 주석: orca가 터미널→PID
    매핑을 안 줌). 이번 세션에서 실제 codex.exe PID(`tasklist`)는 잡을 수
    있었음이 확인됐으니, PID 매핑 방법 자체는 재검토 여지가 있음 — 착수 전
@@ -217,6 +214,7 @@ tower 이관 유지(8/12).
 - 2026-08-31 **세션 0b(재정박 잔여) 완료** — U-1(`harnessctl.py:1110` IS_WIN 웹훅 SKIP 제거, 판정 로직 자체는 무수정)·U-3(남는 브리지 SKIP 문구를 "2차 범위" → 실제 사유로 정정, install delegate의 대시보드 SKIP도 `dash_win.py install` 위임으로 교체) / U-2(usage-coach `scripts/dash_win.py` 신설 — install/remove 얇은 래퍼, `--dry-run`이 `.ps1 -DryRun` 패스스루) / U-4(`statusline_command.py:8`의 모듈 스코프 `import coach`를 `main()` 안으로 이동 — "어떤 입력에도 0 종료" 계약이 import 실패 시엔 하단 try/except 밖이라 깨져 있었음) / task명 개명(`Usage-Coach-Discord`→`UsageCoachDashboard`, `uninstall.ps1`이 옛 이름도 회수). 관측(미수정): `cmd_remove`의 coach `uninstall.sh` 위임이 macOS `launchctl` 전용이라 Windows에서 조용히 no-op — remove 후에도 대시보드 schtasks가 잔존하는 사전 존재 버그, 범위 밖이라 이월. C3-a 태그 3종(discord-multiagent v0.1.2·usage-coach v0.1.3·folder-bot 0.1.6) 발행 + pins.json 반영, codex-discord는 v0.1.5 동결 유지. 5레포 전부 push(discord-multiagent origin을 netwaif→hdmun 전환 포함). 세션 시작 실측 결과가 플랜의 스냅샷 표와 일치함을 먼저 확인 후 착수(재정박 10' 규율 적용)
 - 2026-09-01/02 **세션 2c 실물 검증 완료(코덱스 호명 실응답)**: fetch 캐시(`~/.local/share/discord-harness/repos/codex-discord`)에 로컬-dev 트릭으로 미푸시 커밋 반영 후 `harnessctl.py install --phase delegate` 시도 → schtasks 등록만 관리자 권한 필요(ADR-0002 기존 한계, 우회해서 up/tui-up 직접 호출로 진행). 검증 도중 실물 버그 3건 순차 발견: ①`CODEX_HOME` 무시(리다이렉트 환경서 롤아웃 영구 미검출) ②`pane.orca.mjs`가 orca CLI JSON 응답 봉투(`result`)를 언랩 안 해 `paneHasCodex`가 처음부터 늘 false ③`terminals[].title`이 탭 이름이 아니라 동적 창 제목이라 title 매칭이 구조적으로 항상 실패(zombie 터미널 누적의 원인이기도 함). 셋 다 codex-discord에 수정·커밋(`db80d88`·`f623613`·`445e5e1`) + `docs/pane-mjs-design.md` §9 정정(`73f1ed2`). 수정 후 디스코드 실채널 호명 → 실응답("안녕하세요! 👋") + daemon.log "TUI tail 연결" 확인 — 완료조건 4개(실응답·로그인 로그·codex.exe 생존·installer pytest 41 passed/4 skipped) 전부 충족. 3레포(codex-discord·folder-bot·discord-harness-installer) 사용자 승인 받고 push 완료. codex-discord 태그는 아직 미발행(다음 단계 -4)
 - 2026-09-01 **codex 봇 토큰 재발급 1회 필요했음**: 사용자가 처음 발급한 토큰이 TokenInvalid로 거부됨(디스코드 봇 토큰은 1회성 표시라 포탈 재조회로 무효화 추정) — Reset Token으로 재발급받아 해결. 향후 봇 토큰 안내 시 "발급 즉시 사용, 포탈 재방문 전에" 강조할 것
+- 2026-09-02 **codex-discord C3-a 태그 발행** — 세션 2c 실물 검증 통과로 자격 발생, `v0.1.6` 태그(hdmun 포크) + `pins.json` 반영·커밋 `97decf5`·push. v0.1.5 동결 해제. 다음 순번은 Phase 3(`judge_codex_tui` Windows 지원)
 
 ## 파일 흔적
 <!-- 누적. 만든/고친 파일의 경로를 그대로 적는다. "설정 파일 고침" 같은 산문 금지 -->
