@@ -9,7 +9,7 @@ launchctl로 job을 내리지 않는다(부팅 job은 프로세스 그룹째 킬
 서브커맨드 문자열이 없음을 정적 검증하므로 이 파일에 그 단어를 쓰지 말 것.)
 비밀(토큰·웹훅)은 파일로만 수령하고 stdout에 출력하지 않는다.
 """
-import argparse, ctypes, hashlib, json, os, plistlib, re, shutil, stat, subprocess, sys, time
+import argparse, base64, ctypes, hashlib, json, os, plistlib, re, shutil, stat, subprocess, sys, time
 from datetime import datetime
 from pathlib import Path
 
@@ -745,12 +745,42 @@ def _session_root_win(session: str):
             return pid
     return None
 
-def session_procs(session: str):
+def _tui_root_win(workdir: str):
+    """codex TUI(orca 터미널)를 호스팅하는 pwsh 루트 pid.
+
+    orca는 터미널→PID 매핑을 CLI로 안 준다(pane-mjs-design.md §9·§5.4 실측) —
+    claude 봇처럼 cmdline에 `-n <세션>` 마커도 없다(codex는 세션명을 모른다).
+    대신 orca가 터미널을 띄울 때 pwsh에 넘기는 `-EncodedCommand`(base64
+    UTF-16LE)를 복호화하면 `bridge_win.py cmd_tui_up`이 그대로 심은
+    `Set-Location -LiteralPath '<CODEX_WORKDIR>'; & ...` 리터럴이 남아있다 —
+    그 문자열에 workdir가 포함된 pwsh를 루트로 삼는다(2026-09-02 실측)."""
+    if not workdir:
+        return None
+    for pid, _, cmd in _process_table():
+        if not cmd or "-EncodedCommand" not in cmd:
+            continue
+        argv = _cmd_argv(cmd)
+        try:
+            idx = next(i for i, a in enumerate(argv) if a.lower() == "-encodedcommand")
+            b64 = argv[idx + 1]
+        except (StopIteration, IndexError):
+            continue
+        try:
+            decoded = base64.b64decode(b64).decode("utf-16-le", errors="ignore")
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if workdir in decoded:
+            return pid
+    return None
+
+def session_procs(session: str, workdir: str = None):
     """세션 프로세스 트리의 (pid, command) 목록. 세션 없으면 None.
     HARNESS_FAKE_PANES 시임이 있으면 그걸 우선(플랫폼 무관 결정론적 테스트 경로) —
-    실제 경로는 macOS=tmux pane(_pane_pid), Windows=cmdline 매칭(_session_root_win)."""
+    실제 경로는 macOS=tmux pane(_pane_pid), Windows=cmdline 매칭(_session_root_win).
+    workdir가 주어지면(코덱스 TUI 전용 호출) Windows 실경로는 `_tui_root_win`을
+    쓴다 — codex는 `-n <세션>` 마커가 없어 `_session_root_win`으로 못 찾는다."""
     if os.environ.get("HARNESS_FAKE_PANES") is None and IS_WIN:
-        root = _session_root_win(session)
+        root = _tui_root_win(workdir) if workdir else _session_root_win(session)
     else:
         root = _pane_pid(session)
     if root is None:
@@ -808,8 +838,16 @@ def _is_codex_cmd(cmdline: str) -> bool:
 def _rollout_exists(workdir: str) -> bool:
     """cwd 일치 codex 롤아웃 파일 존재 여부 — 브리지의 세션 특정 검출원.
     codex v0.146.0 기본 설정은 세션 UUID를 화면에 표시하지 않아(3차 실측)
-    브리지가 롤아웃 session_meta.cwd 로 세션을 특정한다."""
-    root = home() / ".codex/sessions"
+    브리지가 롤아웃 session_meta.cwd 로 세션을 특정한다.
+
+    plan 문서는 이 함수가 "이미 이식성 있음"이라 적었으나 그건 json.loads
+    비교(경로 구분자 무관)에 대한 얘기였다 — 루트 자체가 `~/.codex`로
+    고정돼 있었던 건 별개 문제. 2026-09-01 codex-discord 검증에서 실측:
+    Orca가 `CODEX_HOME`을 자체 관리 홈으로 리다이렉트하는 환경(이 개발
+    머신 포함)에서는 `~/.codex`가 아예 갱신되지 않아 롤아웃을 영원히 못
+    찾는다(codex-discord `rollout.mjs` 커밋 db80d88과 동형 수정)."""
+    codex_home = os.environ.get("CODEX_HOME")
+    root = Path(codex_home) / "sessions" if codex_home else home() / ".codex/sessions"
     if not root.is_dir():
         return False
     for f in sorted(root.rglob("rollout-*.jsonl"), reverse=True):
@@ -832,13 +870,14 @@ def judge_codex_tui():
     if not tui_pane:
         return None
     tui_sess = tui_pane.split(":", 1)[0]
-    procs = session_procs(tui_sess)
-    fix = f"bash {bridge_repo()}/scripts/tui-up.sh 로 재기동 후 verify 재실행"
+    workdir = env.get("CODEX_WORKDIR")
+    procs = session_procs(tui_sess, workdir=workdir)
+    fix = (f"python {bridge_repo()}/scripts/bridge_win.py tui-up 로 재기동 후 verify 재실행"
+           if IS_WIN else f"bash {bridge_repo()}/scripts/tui-up.sh 로 재기동 후 verify 재실행")
     if procs is None:
         return "FAIL", f"코덱스 TUI 세션({tui_sess}) 없음 — {fix}"
     if not any(_is_codex_cmd(cmd) for _, cmd in procs):
         return "FAIL", f"코덱스 TUI pane({tui_pane})에 codex 없음(종료됨) — {fix}"
-    workdir = env.get("CODEX_WORKDIR")
     if workdir and not _rollout_exists(workdir):
         return "FAIL", (f"코덱스 TUI({tui_pane}): 세션 롤아웃 없음(cwd={workdir} 일치 "
                         f"파일 부재) — 브리지가 세션을 특정하지 못해 호명이 실패한다. {fix}")
@@ -1084,16 +1123,12 @@ def cmd_verify(a) -> None:
                 pass
         rep("OK" if alive else "WARN",
             f"{label} 데몬 {'생존' if alive else '죽음/미기동'}: {pid_p}")
-    if IS_WIN:
-        # judge_codex_tui → session_procs → _session_root_win은 cmdline "-n <세션>"
-        # 매칭인데 orca 터미널 안의 codex에는 그 인자가 없다(pane-mjs-design.md §5.4
-        # 실측: orca는 터미널→PID 매핑 자체를 제공하지 않는다) — 여기서 판정하면
-        # 오탐 FAIL이 난다. Windows TUI 판정은 Phase 3(T3-1, _tui_root_win 신설) 소관.
-        rep("SKIP", "코덱스 TUI 판정 — Windows 세션 프로세스 매칭 미구현(Phase 3 T3-1 소관)")
-    else:
-        tui = judge_codex_tui()
-        if tui:
-            rep(*tui)
+    # Windows는 _tui_root_win(ptyId 대신 orca -EncodedCommand 복호화로 workdir
+    # 매칭)이 루트를 찾는다(Phase 3, T3-1) — session_procs가 플랫폼 분기를
+    # 안으로 감춰서 여기는 macOS와 동일 호출 하나로 충분하다(T3-2).
+    tui = judge_codex_tui()
+    if tui:
+        rep(*tui)
     for sess in (sessions["orch"], sessions["chat"]):
         procs = session_procs(sess)
         if procs is None:

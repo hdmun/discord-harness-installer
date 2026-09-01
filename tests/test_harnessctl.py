@@ -1,4 +1,4 @@
-import json, os, plistlib, re, shutil, subprocess, sys, threading, time
+import base64, json, os, plistlib, re, shutil, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 import pytest
@@ -12,6 +12,10 @@ def run(home_dir, *args, env_extra=None):
     if sys.platform == "win32":
         env["USERPROFILE"] = str(home_dir)
         env["LOCALAPPDATA"] = str(home_dir)
+    # 실행 호스트가 CODEX_HOME을 이미 설정해뒀으면(Orca 등) _rollout_exists가
+    # 그쪽을 우선하게 돼(2026-09-02 수정) 픽스처 격리가 깨진다 — 테스트는 항상
+    # HOME 기반 .codex로 고정.
+    env["CODEX_HOME"] = str(Path(home_dir) / ".codex")
     if env_extra:
         env.update(env_extra)
     return subprocess.run([sys.executable, str(HARNESSCTL), *args],
@@ -505,10 +509,12 @@ def _seams(panes, procs):
     return {"HARNESS_FAKE_PANES": json.dumps(panes),
             "HARNESS_FAKE_PS": "\n".join(f"{p} {pp} {c}" for p, pp, c in procs)}
 
-def _live_bots_seams():
-    """봇 2종 tmux 세션 + claude + discord MCP 서버 + codex TUI가 전부 살아 있는 정상 상태"""
+def _live_bots_seams(orch="orchestrator", chat="chat-claude"):
+    """봇 2종 tmux 세션 + claude + discord MCP 서버 + codex TUI가 전부 살아 있는 정상 상태.
+    Windows는 세션명에 호스트 접미사가 붙으므로(결정 9) 호출부가 `_bot_sessions(work)`로
+    실제 이름을 넘겨야 한다 — 기본값은 마이너 케이스(리턴코드 무관심)용 mac 리터럴."""
     return _seams(
-        {"orchestrator": 100, "chat-claude": 200, "codex-live": 300},
+        {orch: 100, chat: 200, "codex-live": 300},
         [(100, 1, "/Users/x/.local/bin/claude --channels plugin:discord@claude-plugins-official"),
          (150, 100, f"bun run --cwd {PLUG_CWD} --shell=bun --silent start"),
          (200, 1, "claude --channels plugin:discord@claude-plugins-official"),
@@ -540,8 +546,6 @@ def _mcp_log(tmp_path, workdir, line):
     (d / "2026-08-04.jsonl").write_text(json.dumps({"msg": line}) + "\n", encoding="utf-8")
 
 def test_verify_ok_with_fixture_logs(tmp_path):
-    if sys.platform == "win32":
-        pytest.skip("브리지·코덱스 TUI·tmux 세션명 전제 macOS 전용 — Windows는 2차 범위 SKIP")
     base, work = _installed(tmp_path)
     bridge = tmp_path / ".local/share/discord-harness/repos/codex-discord"
     run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate", "--dry-run")
@@ -553,12 +557,13 @@ def test_verify_ok_with_fixture_logs(tmp_path):
     (bridge / "logs/daemon-gemini.log").write_text("로그인: gem#1 / 엔진 agy\n", encoding="utf-8")
     (bridge / "data").mkdir(exist_ok=True)
     (bridge / "data/daemon.pid").write_text(str(os.getpid()), encoding="utf-8")
+    sessions = _bot_sessions(work)
     r = run(tmp_path, "verify", "--work-dir", str(work), "--skip-webhook", "--wait", "5",
-            env_extra=_live_bots_seams())
+            env_extra=_live_bots_seams(sessions["orch"], sessions["chat"]))
     assert r.returncode == 0, r.stdout + r.stderr
     assert "[OK] 오케스트레이터" in r.stdout and "[OK] 수다 클로드" in r.stdout
     assert "[OK] 코덱스" in r.stdout and "[OK] 제미나이" in r.stdout
-    assert "[OK] tmux 세션 orchestrator claude 가동" in r.stdout
+    assert f"[OK] 세션 {sessions['orch']} claude 가동" in r.stdout
     assert "[OK] 코덱스 TUI(codex-live:0.0) codex 가동" in r.stdout
 
 def test_verify_webhook_probe_sends_user_agent(tmp_path):
@@ -636,10 +641,9 @@ def test_verify_tmux_session_without_claude_is_warn(tmp_path):
     assert f"[WARN] 세션 {sessions['orch']}: 세션은 있으나 claude 프로세스 없음" in r.stdout
 
 def test_verify_codex_tui_pane_without_codex_is_fail(tmp_path):
-    if sys.platform == "win32":
-        pytest.skip("코덱스 TUI는 Windows에서 SKIP — codex-discord 2차 범위")
     # 3차 실측: codex-live 세션은 있는데 pane이 zsh(codex 죽음)이면 브리지가 호명을
-    # 거부한다 — verify가 이를 못 보면 11/11 OK 오탐. 복구 경로(tui-up.sh) 안내 필수
+    # 거부한다 — verify가 이를 못 보면 11/11 OK 오탐. 복구 경로 안내 필수
+    # (HARNESS_FAKE_PANES 시임 경로라 플랫폼 무관 — fix 문구만 IS_WIN에 따라 갈린다)
     base, work = _installed(tmp_path)
     run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate", "--dry-run")
     _mcp_log(tmp_path, work, "Successfully connected to Discord")
@@ -652,11 +656,10 @@ def test_verify_codex_tui_pane_without_codex_is_fail(tmp_path):
                   (300, 1, "zsh")])          # codex 없음 — pane에 셸만 남음
     r = run(tmp_path, "verify", "--work-dir", str(work), "--skip-webhook", env_extra=env)
     assert r.returncode == 1
-    assert "[FAIL] 코덱스 TUI" in r.stdout and "tui-up.sh" in r.stdout
+    fix_hint = "bridge_win.py tui-up" if sys.platform == "win32" else "tui-up.sh"
+    assert "[FAIL] 코덱스 TUI" in r.stdout and fix_hint in r.stdout
 
 def test_verify_codex_tui_without_rollout_is_fail(tmp_path):
-    if sys.platform == "win32":
-        pytest.skip("코덱스 TUI는 Windows에서 SKIP — codex-discord 2차 범위")
     # 3차 실측(회신6): codex v0.146.0은 세션 UUID를 화면에 안 보여 브리지가
     # 롤아웃 session_meta(cwd)로 세션을 특정한다 — cwd 일치 롤아웃이 없으면
     # TUI가 살아 있어도 호명이 실패하므로 verify가 FAIL로 잡아야 한다
@@ -668,6 +671,48 @@ def test_verify_codex_tui_without_rollout_is_fail(tmp_path):
             env_extra=_live_bots_seams())        # 롤아웃 fixture 없음
     assert r.returncode == 1
     assert "[FAIL] 코덱스 TUI" in r.stdout and "롤아웃" in r.stdout
+
+def _encoded_command_containing(workdir):
+    """orca가 `terminal create --command`로 넘긴 pwsh -EncodedCommand 흉내 —
+    실측(2026-09-02): bridge_win.py의 `Set-Location -LiteralPath '<workdir>'; & ...`
+    literal이 UTF-16LE→base64 그대로 남는다."""
+    script = f"Set-Location -LiteralPath '{workdir}'; & 'C:\\fake\\codex.exe' -s workspace-write"
+    return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
+
+def test_tui_root_win_real_process_table_finds_codex(tmp_path):
+    """T3-1: HARNESS_FAKE_PANES 없이(=진짜 Windows 경로, _tui_root_win 경유) codex
+    TUI를 찾아내는지 검증 — 다른 codex TUI 테스트들은 전부 HARNESS_FAKE_PANES 시임을
+    타서 _tui_root_win 자체는 한 번도 실행되지 않는다(2026-09-02 실측 갭)."""
+    if sys.platform != "win32":
+        pytest.skip("_tui_root_win은 Windows 전용 — macOS는 _pane_pid(tmux) 경로")
+    base, work = _installed(tmp_path)
+    sessions = _bot_sessions(work)
+    run(tmp_path, "install", "--work-dir", str(work), "--phase", "delegate", "--dry-run")
+    _mcp_log(tmp_path, work, "Successfully connected to Discord")
+    _mcp_log(tmp_path, work / "chat", "Successfully connected to Discord")
+    workdir = str(work / "codex-discord-workspace")
+    _rollout(tmp_path, workdir)
+    bridge = tmp_path / ".local/share/discord-harness/repos/codex-discord"
+    (bridge / "logs").mkdir(exist_ok=True)
+    (bridge / "logs/daemon.log").write_text("로그인: codex#1 / 엔진 codex\n", encoding="utf-8")
+    (bridge / "logs/daemon-gemini.log").write_text("로그인: gem#1 / 엔진 agy\n", encoding="utf-8")
+    (bridge / "data").mkdir(exist_ok=True)
+    (bridge / "data/daemon.pid").write_text(str(os.getpid()), encoding="utf-8")
+    b64 = _encoded_command_containing(workdir)
+    procs = [
+        (100, 1, f"claude -n {sessions['orch']} --channels plugin:discord@claude-plugins-official"),
+        (150, 100, f"bun run --cwd {PLUG_CWD} --shell=bun --silent start"),
+        (200, 1, f"claude -n {sessions['chat']} --channels plugin:discord@claude-plugins-official"),
+        (250, 200, f"bun run --cwd {PLUG_CWD} --shell=bun --silent start"),
+        # codex TUI 루트 — orca가 띄운 pwsh(EncodedCommand에 workdir 포함) → codex.exe
+        (300, 1, f'"C:\\Program Files\\PowerShell\\7\\pwsh.exe" -NoLogo -NoExit -EncodedCommand {b64}'),
+        (350, 300, "C:\\fake\\codex.exe -s workspace-write -c sandbox_workspace_write.network_access=true"),
+    ]
+    env = {"HARNESS_FAKE_PS": "\n".join(f"{p} {pp} {c}" for p, pp, c in procs)}
+    r = run(tmp_path, "verify", "--work-dir", str(work), "--skip-webhook", "--wait", "5",
+            env_extra=env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "[OK] 코덱스 TUI" in r.stdout and "codex 가동" in r.stdout
 
 def test_verify_wait_polls_until_timeout(tmp_path):
     # bot-up 직렬화(락 대기 최대 300초+연결 240초) 중 조기 FAIL 방지 — 상한까지 폴링 후 판정
