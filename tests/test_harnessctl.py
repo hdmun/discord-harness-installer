@@ -631,6 +631,14 @@ def test_verify_connection_failed_is_fail(tmp_path):
     assert r.returncode == 1
     assert "[FAIL] 오케스트레이터" in r.stdout
 
+def test_verify_no_log_skip_hints_name_collision(tmp_path):
+    # 무로그 스킵의 원인이 동명 세션 충돌(다른 기기 포함)일 수 있다는 안내가
+    # 진단 메시지에 있어야 한다 — 9/2 이월 ②
+    base, work = _installed(tmp_path)
+    r = run(tmp_path, "verify", "--work-dir", str(work), "--skip-webhook")
+    assert r.returncode == 1
+    assert "동명 세션 충돌" in r.stdout and "다른 기기" in r.stdout
+
 def test_verify_fails_on_stale_mcp_log(tmp_path):
     # MCP가 아예 안 뜨면 로그 파일이 안 생긴다 — 이전 기동의 '성공' 로그가
     # 합격으로 오판되면 안 된다 (2026-08-05 실측)

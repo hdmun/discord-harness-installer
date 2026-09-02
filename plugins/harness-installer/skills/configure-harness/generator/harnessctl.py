@@ -655,16 +655,17 @@ def judge_mcp(workdir: Path, since: float = None):
     if since is not None:
         files = [f for f in files if f.stat().st_mtime >= since]
         if not files:
-            return "FAIL", ("설치 이후 MCP 로그 없음 — MCP 미기동. "
-                            "scripts/bot-restart.sh 로 재기동 후 verify 재실행")
+            return "FAIL", ("설치 이후 MCP 로그 없음 — MCP 미기동이거나 동명 세션 충돌"
+                            "(다른 기기의 같은 계정 세션 포함, 2026-08-10 실측)일 수 있음. "
+                            "scripts/bot-restart.sh 로 재기동 후 verify 재실행, 반복되면 세션 이름 충돌 의심")
     if not files:
-        return "WARN", f"판정 로그 없음(미기동?): {d}"
+        return "WARN", f"판정 로그 없음(미기동 또는 동명 세션 충돌 — 다른 기기 포함): {d}"
     text = files[-1].read_text(encoding="utf-8", errors="ignore")
     if "Successfully connected" in text:
         return "OK", "MCP 연결 성공"
     if "Connection failed" in text:
         return "FAIL", "MCP 연결 실패 — 토큰 오입력·인텐트 미설정·초대 누락 확인"
-    return "WARN", f"판정 로그 없음(미기동?): {d}"
+    return "WARN", f"판정 로그 없음(미기동 또는 동명 세션 충돌 — 다른 기기 포함): {d}"
 
 MCP_PROC_MARK = "claude-plugins-official/discord"
 
