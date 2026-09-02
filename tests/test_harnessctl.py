@@ -844,6 +844,21 @@ def test_remove_rerun_after_full_removal_has_no_spurious_warn(tmp_path):
     assert "[WARN]" not in r2.stdout
     assert "[SKIP]" in r2.stdout
 
+def test_remove_state_preserved_log_matches_reality_when_state_never_existed(tmp_path):
+    # 어떤 harnessctl 명령도 실행된 적 없어 state.json이 존재한 적조차 없는데
+    # remove가 warn을 만들면(레포는 있으나 uninstall.sh 없음) "상태 보존" 로그가
+    # 실재하지 않는 파일을 가리키면 안 된다 — 9/2 이월 ⑤
+    work = tmp_path / "work"; work.mkdir()
+    (tmp_path / ".local/share/discord-harness/repos/codex-discord/scripts").mkdir(parents=True)
+    (tmp_path / ".local/share/discord-harness/repos/usage-coach/scripts").mkdir(parents=True)
+    state = tmp_path / ".config/discord-harness/state.json"
+    assert not state.exists()
+    r = run(tmp_path, "remove", "--work-dir", str(work))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "[WARN]" in r.stdout
+    assert not state.exists()
+    assert "상태 보존" not in r.stdout
+
 def test_remove_preserves_user_modified_overlay(tmp_path):
     base, work = _installed(tmp_path)
     (work / "scripts/post-as.sh").write_text("#!/bin/bash\n# 사용자 수정\n", encoding="utf-8")

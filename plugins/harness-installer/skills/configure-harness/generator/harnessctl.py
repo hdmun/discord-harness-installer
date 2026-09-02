@@ -1079,7 +1079,14 @@ def cmd_remove(a) -> None:
         rmtree_force(repos_dir())
         print(f"소스 저장소 제거: {repos_dir()}")
     if warns:
-        print(f"[WARN] {warns}건 미완 — 상태 보존({state_path()}). 재실행하면 이어서 제거한다")
+        # cmd_remove는 state.json을 갱신하지 않는다(읽기만) — "상태 보존" 문구는
+        # 실제로 파일이 있을 때만 쓴다. 없으면(pair/install/fetch를 한 번도 안 거친
+        # 환경) 없는 파일을 보존한다고 주장하는 모순이 된다(9/2 이월 ⑤).
+        if state_path().exists():
+            print(f"[WARN] {warns}건 미완 — 상태 보존({state_path()}). 재실행하면 이어서 제거한다")
+        else:
+            print(f"[WARN] {warns}건 미완 — 상태 파일 없음({state_path()}, pair/install/fetch 미실행). "
+                  "재실행하면 남은 항목을 다시 검사한다")
     elif state_path().exists():
         state_path().unlink()
     print("제거 완료 — 보존: .env·.discord-state·chat/(사용자 수정분)·tasks/·SESSION.md·~/.config/usage-coach/")
