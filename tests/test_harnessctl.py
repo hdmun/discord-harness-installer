@@ -831,6 +831,19 @@ def test_remove_warns_on_delegated_uninstall_failure(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr   # 계속 진행 의미론 유지
     assert "[WARN] 제거 스크립트 실패" in r.stdout
 
+def test_remove_rerun_after_full_removal_has_no_spurious_warn(tmp_path):
+    # uninstall.sh 위임분은 소스 저장소를 통째로 지운다(첫 실행) — 재실행에서
+    # bridge_repo()/coach_repo() 경로가 사라진 걸 "스크립트 없음" WARN으로
+    # 오판하면 안 된다(9/2 이월 ④, "이미 제거됨" 판정 부재)
+    base, work = _installed(tmp_path)
+    r1 = run(tmp_path, "remove", "--work-dir", str(work))
+    assert r1.returncode == 0, r1.stdout + r1.stderr
+    assert "[WARN]" not in r1.stdout
+    r2 = run(tmp_path, "remove", "--work-dir", str(work))
+    assert r2.returncode == 0, r2.stdout + r2.stderr
+    assert "[WARN]" not in r2.stdout
+    assert "[SKIP]" in r2.stdout
+
 def test_remove_preserves_user_modified_overlay(tmp_path):
     base, work = _installed(tmp_path)
     (work / "scripts/post-as.sh").write_text("#!/bin/bash\n# 사용자 수정\n", encoding="utf-8")
