@@ -142,6 +142,34 @@ def test_preflight_win_fails_on_non_git_dir(tmp_path):
     assert r.returncode == 1
     assert "[FAIL] git 레포 아님" in r.stdout
 
+def test_preflight_detects_local_session_name_conflict(tmp_path):
+    # 미페어링 상태에서 동명 세션이 이미 로컬에 떠 있으면(다른 폴더 설치 또는
+    # 잔존 세션) preflight가 미리 잡아야 한다 — 9/2 이월 ①
+    (tmp_path / ".claude/plugins/cache/claude-plugins-official/discord").mkdir(parents=True)
+    extra = _win_preflight_repo(tmp_path) if sys.platform == "win32" else []
+    sess = ("orchestrator-" + os.environ.get("COMPUTERNAME", "win")
+            if sys.platform == "win32" else "orchestrator")
+    env = {"HARNESS_FAKE_PANES": json.dumps({sess: 999}),
+           "HARNESS_FAKE_PS": f"999 1 claude --channels plugin:discord@claude-plugins-official"}
+    r = run(tmp_path, "preflight", *extra, env_extra=env)
+    assert r.returncode == 1
+    assert "[FAIL]" in r.stdout and "세션 이름 충돌" in r.stdout and sess in r.stdout
+
+def test_preflight_skips_session_conflict_when_already_paired(tmp_path):
+    # bots.json이 있으면(이미 페어링된 자기 자신의 설치) 같은 이름 프로세스가
+    # 있어도 충돌이 아니다 — 재실행 preflight에서 오탐 금지
+    (tmp_path / ".claude/plugins/cache/claude-plugins-official/discord").mkdir(parents=True)
+    extra = _win_preflight_repo(tmp_path) if sys.platform == "win32" else []
+    sess = ("orchestrator-" + os.environ.get("COMPUTERNAME", "win")
+            if sys.platform == "win32" else "orchestrator")
+    (tmp_path / "bots.json").write_text(
+        json.dumps({"schema_version": 1, "bots": [{"name": "orchestrator", "session": sess}]}),
+        encoding="utf-8")
+    env = {"HARNESS_FAKE_PANES": json.dumps({sess: 999}),
+           "HARNESS_FAKE_PS": f"999 1 claude --channels plugin:discord@claude-plugins-official"}
+    r = run(tmp_path, "preflight", *extra, env_extra=env)
+    assert r.returncode == 0, r.stdout + r.stderr
+
 def test_fetch_checks_out_pin_and_records(tmp_path):
     fetched(tmp_path)
     st = json.loads((tmp_path / ".config/discord-harness/state.json").read_text(encoding="utf-8"))

@@ -173,6 +173,17 @@ def cmd_preflight(a) -> None:
                         "'Filename too long' 가능(실측). `git config --global core.longpaths true` 권고")
         else:
             rep("OK", "git core.longpaths=true")
+    # 동명 세션 충돌 검사(플랫폼 무관, 9/2 이월 ①) — 미페어링 상태(bots.json 없음)
+    # 한정: 페어링 후엔 이 프로세스가 자기 자신의 봇 세션일 수 있어 오탐이 된다.
+    wd_arg = getattr(a, "work_dir", None)
+    if wd_arg:
+        work = Path(wd_arg).expanduser()
+        if work.is_dir() and load_bots_json(work) is None:
+            for name in (default_session_name("orch"), default_session_name("chat")):
+                if session_procs(name) is not None:
+                    rep("FAIL", f"세션 이름 충돌: '{name}' 이미 로컬에서 가동 중 — "
+                                "다른 폴더의 하네스 설치이거나 잔존 세션(2026-08-10 실측). "
+                                "먼저 그 세션을 /exit로 정리하거나 다른 이름을 쓸 것")
     sys.exit(1 if fails else 0)
 
 def cmd_fetch(a) -> None:
