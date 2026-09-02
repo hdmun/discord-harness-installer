@@ -13,6 +13,18 @@
 ## 현재 상태
 <!-- 덮어쓰기. 항상 짧게 — 지금 어디까지 왔는지 스냅샷만 -->
 
+**9/2 세션 4 — 설치기 이월 0.1.14 후보 5건 처리 완료(4수정+1확인스킵), push 완료.**
+①preflight 동명 세션 충돌 검사(`7409c04` — bots.json 없을 때만, 있으면 자기 세션이라
+오탐 방지) ②verify judge_mcp WARN/FAIL 메시지에 "동명 세션 충돌(다른 기기 포함)"
+안내 추가(`91aebef`) ③pins.json folder-bot=0.1.6은 이미 정확(2026-08-31 갱신 이력
+확인, 상류 plugin.json version도 0.1.6 일치 — 코드 무변경) ④remove 재실행 시
+repos_dir() 부재를 "이미 제거됨" SKIP으로 판정(첫 remove가 repos_dir 통째로
+지워서 재실행마다 uninstall.sh "없음" WARN이 영구 반복되던 버그, `3765705`)
+⑤remove "상태 보존" 로그를 state_path().exists() 분기로 정정(state.json이 애초에
+없는 환경에서도 "보존" 문구가 나가던 모순, `a25563a`). 전부 TDD(재현 테스트 먼저
+FAIL 확인 → 수정 → 그린)로 진행, 항목별 개별 커밋. pytest 45→50 passed(+5)/1
+skipped. push 완료(4커밋 + 이전 세션 미푸시 `6897fc7`도 같이 나감).
+
 **9/2 세션 3(Phase 3 T3-1/T3-2) 완료 — 코덱스 TUI verify 판정 Windows 지원.**
 정본 `docs/superpowers/plans/2026-08-29-windows-2nd-slice.md` "세션 3" 절.
 `_tui_root_win` 신설(orca가 pwsh에 넘기는 `-EncodedCommand`를 base64/UTF-16LE
@@ -119,8 +131,10 @@ tower 이관 유지(8/12).
    `cmd_verify` SKIP 분기 제거, 신규 테스트 1개+언스킵 3개, 실물 검증(TUI OK→
    codex 강제종료 FAIL→재기동 OK) — 커밋 `6897fc7`, **push는 사용자 승인 대기**).
    상세는 위 현재 상태 "9/2 세션 3" 절 참고.
--3.2. **[다음 세션 첫 일] 세션 3 push 승인 받기** — `6897fc7`(installer)만 남음.
-   승인 시 push → SESSION.md 갱신(이 항목 제거).
+-3.3. ~~세션 3 push 승인~~ — **2026-09-02 완료**(세션 4에서 세션 3 커밋 `6897fc7`
+   포함 일괄 push).
+-3.2. ~~설치기 이월 0.1.14 후보 5건~~ — **2026-09-02 완료**(4수정+1확인스킵,
+   push 완료). 상세는 위 현재 상태 "9/2 세션 4" 절 참고.
 -3. macOS `tui-up.sh`의 `SESSIONS_ROOT` 하드코딩 정정 — codex-discord
    `rollout.mjs`/`bridge_win.py`는 이번에 `CODEX_HOME` 우선으로 고쳤는데
    (`db80d88`) macOS 스크립트는 그대로. Orca를 쓰는 macOS 사용자도 같은 함정을
@@ -144,12 +158,8 @@ tower 이관 유지(8/12).
 1. tower 세션 매뉴얼 개정 원고 검수(오면) — v2.2 원본
    (~/VSCodeWorkspace/discord-multiagent-manual/)·SESSION.md 결정 기록 대조,
    "16장→스킬 1개" 서사에서 포탈 수동 단계 잔존 경계선 확인
-2. 설치기 차기 이월(0.1.14 후보 — 0.1.13은 8/26 핫픽스로 소진): ①preflight/verify 로컬 동명 세션 검사
-   ②verify 무로그 스킵 진단 메시지에 이름 충돌 안내(다른 기기 포함)
-   ③pins.json plugins.folder-bot 0.1.1→0.1.5 정정(기록용 — plugin install은
-   버전 미지정 최신 설치라 기능 무관, 8/11 확인) ④remove 재실행 "이미 제거됨"
-   판정 부재(uninstall.sh 부재 WARN 영구 잔존) ⑤remove 재실행 로그 모순
-   ("상태 보존(state.json)" 출력인데 실제 파일 미생성)
+2. ~~설치기 차기 이월(0.1.14 후보)~~ — **2026-09-02 완료**(세션 4, 4수정+1확인스킵).
+   상세는 위 현재 상태 절 참고.
 5. folder-bot 차기 이월: ①botctl stop을 /exit 정상 종료 방식으로(현 kill-session은
    유령 리스 생성 — 8/6 원인 격리) ②doctor MCP 판정 sessionId 기준 구분(8/6 완화만
    반영) ③eams 무조건 주입 여부 + 미신뢰 폴더 재현 실험(ct-reply §3.17)
@@ -237,6 +247,21 @@ tower 이관 유지(8/12).
 - 2026-09-01/02 **세션 2c 실물 검증 완료(코덱스 호명 실응답)**: fetch 캐시(`~/.local/share/discord-harness/repos/codex-discord`)에 로컬-dev 트릭으로 미푸시 커밋 반영 후 `harnessctl.py install --phase delegate` 시도 → schtasks 등록만 관리자 권한 필요(ADR-0002 기존 한계, 우회해서 up/tui-up 직접 호출로 진행). 검증 도중 실물 버그 3건 순차 발견: ①`CODEX_HOME` 무시(리다이렉트 환경서 롤아웃 영구 미검출) ②`pane.orca.mjs`가 orca CLI JSON 응답 봉투(`result`)를 언랩 안 해 `paneHasCodex`가 처음부터 늘 false ③`terminals[].title`이 탭 이름이 아니라 동적 창 제목이라 title 매칭이 구조적으로 항상 실패(zombie 터미널 누적의 원인이기도 함). 셋 다 codex-discord에 수정·커밋(`db80d88`·`f623613`·`445e5e1`) + `docs/pane-mjs-design.md` §9 정정(`73f1ed2`). 수정 후 디스코드 실채널 호명 → 실응답("안녕하세요! 👋") + daemon.log "TUI tail 연결" 확인 — 완료조건 4개(실응답·로그인 로그·codex.exe 생존·installer pytest 41 passed/4 skipped) 전부 충족. 3레포(codex-discord·folder-bot·discord-harness-installer) 사용자 승인 받고 push 완료. codex-discord 태그는 아직 미발행(다음 단계 -4)
 - 2026-09-01 **codex 봇 토큰 재발급 1회 필요했음**: 사용자가 처음 발급한 토큰이 TokenInvalid로 거부됨(디스코드 봇 토큰은 1회성 표시라 포탈 재조회로 무효화 추정) — Reset Token으로 재발급받아 해결. 향후 봇 토큰 안내 시 "발급 즉시 사용, 포탈 재방문 전에" 강조할 것
 - 2026-09-02 **codex-discord C3-a 태그 발행** — 세션 2c 실물 검증 통과로 자격 발생, `v0.1.6` 태그(hdmun 포크) + `pins.json` 반영·커밋 `97decf5`·push. v0.1.5 동결 해제. 다음 순번은 Phase 3(`judge_codex_tui` Windows 지원)
+- 2026-09-02 **세션 4 — 0.1.14 이월 5건 처리**: ①preflight가 미페어링 상태에서
+  기본 세션 이름(default_session_name)에 이미 로컬 프로세스가 있으면 FAIL(다른
+  폴더 설치나 잔존 세션 — bots.json 있으면 자기 세션이라 스킵) ②judge_mcp의
+  WARN/FAIL 메시지에 "동명 세션 충돌(다른 기기 포함)" 후보 추가 ③pins.json
+  folder-bot=0.1.6 실측 재확인 — 이미 정확(2026-08-31에 갱신된 이력 그대로,
+  상류 plugin.json version도 0.1.6) → 코드 무변경, 스킵 ④cmd_remove가
+  repos_dir() 존재 여부로 분기 — 없으면(첫 remove가 이미 rmtree했거나 fetch
+  미실행) uninstall.sh 위임 자체를 SKIP 처리(예전엔 매 재실행마다 "스크립트
+  없음" WARN 영구 반복) ⑤"상태 보존" 로그를 state_path().exists() 조건부로 —
+  cmd_remove가 state.json을 쓰지 않는다(읽기만)는 사실은 그대로 두고, 파일이
+  실재하지 않는 환경(pair/fetch 자체를 안 거친 경우)에서도 "보존" 문구가
+  나가던 모순만 정정. 전부 TDD(재현 테스트로 먼저 FAIL 확인 → 최소 수정 →
+  그린)로 진행, 항목별 개별 커밋(`7409c04`·`91aebef`·`3765705`·`a25563a`).
+  pytest 45→50 passed(+5 신규 테스트)/1 skipped 유지. push 완료(세션 3 미푸시
+  커밋 `6897fc7`도 이번에 같이 나감)
 - 2026-09-02 **세션 3(Phase 3 T3-1/T3-2) 완료** — orca가 터미널→PID 매핑을 CLI로 제공하지 않고(pane-mjs-design.md §9) codex TUI는 claude 봇과 달리 `-n <세션>` cmdline 마커도 없어, `_session_root_win` 재사용이 불가능하다는 plan의 사전 분석이 실측으로 확정됨. 해결책은 orca가 pwsh에 넘기는 `-EncodedCommand`(base64/UTF-16LE)를 복호화해 그 안에 남아있는 `bridge_win.py`의 `Set-Location -LiteralPath '<CODEX_WORKDIR>'` 리터럴로 워크디렉터리 매칭 — 세션명이 아니라 워크디렉터리로 루트를 찾는 첫 사례. 덤으로 `_rollout_exists`도 세션 2c와 동일한 `CODEX_HOME` 하드코딩 버그였음을 발견(plan의 "이미 이식성 있음" 판단은 무효화 — json.loads 비교 얘기였지 루트 경로 하드코딩엔 적용 안 됐음). 테스트 인프라 갭도 발견: 기존 3개 코덱스 TUI 테스트가 전부 `HARNESS_FAKE_PANES` 시임을 타서 `_tui_root_win`(진짜 Windows 코드)은 한 번도 실행된 적 없었음 — 신규 테스트로 메움. 부수 발견: `_live_bots_seams()` 헬퍼가 mac 리터럴 세션명("orchestrator")을 하드코딩해 Windows 호스트 접미사(결정 9)와 어긋나는 채 방치돼 있었음(항상 skip돼 안 드러났던 것) — orch/chat 인자로 확장. `run()` 테스트 헬퍼도 호스트의 실제 `CODEX_HOME`(이 개발 머신은 Orca가 설정)을 상속해 픽스처 격리를 깨는 걸 발견해 고정. 커밋 `6897fc7`(installer) — push는 사용자 승인 대기
 
 ## 파일 흔적
@@ -324,3 +349,5 @@ tower 이관 유지(8/12).
 - `~/repo/_discord-harness/codex-discord` `docs/pane-mjs-design.md` §9 "미확인" 절을 실측 확정 기록으로 교체(JSON 봉투 실제 스키마·CODEX_HOME 함정) — 커밋 `73f1ed2`
 - `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` Phase 3 T3-1/T3-2 — `_tui_root_win`(EncodedCommand base64/UTF-16LE 복호화 후 workdir 리터럴 매칭) 신설, `session_procs`가 `workdir` 파라미터로 Windows 실경로 분기, `_rollout_exists` `CODEX_HOME` 인식, `cmd_verify`의 Windows SKIP 분기 제거(`judge_codex_tui()` 플랫폼 무관 한 줄로 통일), `judge_codex_tui`의 `fix` 문구 플랫폼별 분기 — 커밋 `6897fc7`
 - `tests/test_harnessctl.py` Phase 3 대응 — `run()`에 `CODEX_HOME` 고정 추가, `_live_bots_seams(orch, chat)` 세션명 파라미터화, 기존 3개 codex TUI 테스트 win32-skip 제거(+ fix 문구·"tmux 세션" 오기 정정), 신규 `_encoded_command_containing`/`test_tui_root_win_real_process_table_finds_codex`(HARNESS_FAKE_PANES 없이 `_tui_root_win` 실경로를 직접 태우는 유일한 테스트) — 커밋 `6897fc7`
+- `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` 0.1.14 이월 ①②④⑤ — `cmd_preflight`에 동명 세션 충돌 검사(`load_bots_json`/`default_session_name`/`session_procs` 조합, 미페어링 한정) 추가 / `judge_mcp`의 WARN·FAIL 메시지에 "동명 세션 충돌(다른 기기 포함)" 안내 / `cmd_remove`가 `repos_dir().exists()`로 분기해 부재 시 uninstall.sh 위임을 SKIP(영구 WARN 제거) / `cmd_remove`의 "상태 보존" 로그를 `state_path().exists()` 조건부로 정정 — 커밋 `7409c04`·`91aebef`·`3765705`·`a25563a`
+- `tests/test_harnessctl.py` 0.1.14 이월 대응 신규 5개 — `test_preflight_detects_local_session_name_conflict`/`test_preflight_skips_session_conflict_when_already_paired`/`test_verify_no_log_skip_hints_name_collision`/`test_remove_rerun_after_full_removal_has_no_spurious_warn`/`test_remove_state_preserved_log_matches_reality_when_state_never_existed` — 전부 재현 실패 먼저 확인 후 수정(TDD)
