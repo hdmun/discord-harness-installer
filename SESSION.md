@@ -135,10 +135,13 @@ tower 이관 유지(8/12).
    포함 일괄 push).
 -3.2. ~~설치기 이월 0.1.14 후보 5건~~ — **2026-09-02 완료**(4수정+1확인스킵,
    push 완료). 상세는 위 현재 상태 "9/2 세션 4" 절 참고.
--3. macOS `tui-up.sh`의 `SESSIONS_ROOT` 하드코딩 정정 — codex-discord
-   `rollout.mjs`/`bridge_win.py`는 이번에 `CODEX_HOME` 우선으로 고쳤는데
-   (`db80d88`) macOS 스크립트는 그대로. Orca를 쓰는 macOS 사용자도 같은 함정을
-   겪을 수 있음(미확인 — 이 개발 머신 관측이 mac에서도 재현되는지부터 확인).
+-3. ~~macOS `tui-up.sh`의 `SESSIONS_ROOT` 하드코딩 정정~~ — **코드 수정·push 완료
+   (2026-09-02, codex-discord `e5392c0`)**, **mac 실측은 아직 미완**(이 개발
+   머신엔 mac 접속 수단 없음 — 다음 -2.5 게이트, "내 macOS 기기에 새 pins
+   설치 직전"에 doctor+verify 1회 때 같이 확인). `scripts/tui-up.sh`의 롤아웃
+   대기 루프(`find "$HOME/.codex/sessions"` → `find "${CODEX_HOME:-$HOME/.codex}/
+   sessions"`) 1줄 — 정적 회귀 테스트(`test/tui-up.test.sh`) 추가. C3-a 정책상 mac 미검증이라
+   pins.json은 안 건드림(codex-discord는 여전히 v0.1.6 핀 유지, 태그 미발행).
 -2.5. **macOS 게이트 축소(무기한 대기 아님)** — "내 macOS 기기에 새 pins를 설치하기
    직전"에만 `doctor`+`verify` 1회. Windows 2차 슬라이스 전체가 이 게이트를
    요구하지 않는다(플랜 결정 4 근거: `pid_alive` 변경의 유일 호출부는 verify
@@ -247,6 +250,12 @@ tower 이관 유지(8/12).
 - 2026-09-01/02 **세션 2c 실물 검증 완료(코덱스 호명 실응답)**: fetch 캐시(`~/.local/share/discord-harness/repos/codex-discord`)에 로컬-dev 트릭으로 미푸시 커밋 반영 후 `harnessctl.py install --phase delegate` 시도 → schtasks 등록만 관리자 권한 필요(ADR-0002 기존 한계, 우회해서 up/tui-up 직접 호출로 진행). 검증 도중 실물 버그 3건 순차 발견: ①`CODEX_HOME` 무시(리다이렉트 환경서 롤아웃 영구 미검출) ②`pane.orca.mjs`가 orca CLI JSON 응답 봉투(`result`)를 언랩 안 해 `paneHasCodex`가 처음부터 늘 false ③`terminals[].title`이 탭 이름이 아니라 동적 창 제목이라 title 매칭이 구조적으로 항상 실패(zombie 터미널 누적의 원인이기도 함). 셋 다 codex-discord에 수정·커밋(`db80d88`·`f623613`·`445e5e1`) + `docs/pane-mjs-design.md` §9 정정(`73f1ed2`). 수정 후 디스코드 실채널 호명 → 실응답("안녕하세요! 👋") + daemon.log "TUI tail 연결" 확인 — 완료조건 4개(실응답·로그인 로그·codex.exe 생존·installer pytest 41 passed/4 skipped) 전부 충족. 3레포(codex-discord·folder-bot·discord-harness-installer) 사용자 승인 받고 push 완료. codex-discord 태그는 아직 미발행(다음 단계 -4)
 - 2026-09-01 **codex 봇 토큰 재발급 1회 필요했음**: 사용자가 처음 발급한 토큰이 TokenInvalid로 거부됨(디스코드 봇 토큰은 1회성 표시라 포탈 재조회로 무효화 추정) — Reset Token으로 재발급받아 해결. 향후 봇 토큰 안내 시 "발급 즉시 사용, 포탈 재방문 전에" 강조할 것
 - 2026-09-02 **codex-discord C3-a 태그 발행** — 세션 2c 실물 검증 통과로 자격 발생, `v0.1.6` 태그(hdmun 포크) + `pins.json` 반영·커밋 `97decf5`·push. v0.1.5 동결 해제. 다음 순번은 Phase 3(`judge_codex_tui` Windows 지원)
+- 2026-09-02 **codex-discord `tui-up.sh` SESSIONS_ROOT 정정(-3)**: 8/29 결정에서
+  이월된 macOS `find "$HOME/.codex/sessions"` 하드코딩을 `${CODEX_HOME:-$HOME/.codex}`
+  로 정정(rollout.mjs/bridge_win.py와 동형, `e5392c0`). 정적 회귀 테스트만 가능
+  (tmux+codex 상호작용 스크립트라 유닛 테스트 불가 — uninstall.test.sh 선례처럼
+  grep 기반 정적 검증). mac 실측 수단이 이 개발 머신에 없어 기능 검증은 -2.5
+  게이트(다음 macOS 기기 pins 설치 직전)로 이월 — pins.json 태그는 그때까지 보류
 - 2026-09-02 **세션 4 — 0.1.14 이월 5건 처리**: ①preflight가 미페어링 상태에서
   기본 세션 이름(default_session_name)에 이미 로컬 프로세스가 있으면 FAIL(다른
   폴더 설치나 잔존 세션 — bots.json 있으면 자기 세션이라 스킵) ②judge_mcp의
@@ -351,3 +360,4 @@ tower 이관 유지(8/12).
 - `tests/test_harnessctl.py` Phase 3 대응 — `run()`에 `CODEX_HOME` 고정 추가, `_live_bots_seams(orch, chat)` 세션명 파라미터화, 기존 3개 codex TUI 테스트 win32-skip 제거(+ fix 문구·"tmux 세션" 오기 정정), 신규 `_encoded_command_containing`/`test_tui_root_win_real_process_table_finds_codex`(HARNESS_FAKE_PANES 없이 `_tui_root_win` 실경로를 직접 태우는 유일한 테스트) — 커밋 `6897fc7`
 - `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` 0.1.14 이월 ①②④⑤ — `cmd_preflight`에 동명 세션 충돌 검사(`load_bots_json`/`default_session_name`/`session_procs` 조합, 미페어링 한정) 추가 / `judge_mcp`의 WARN·FAIL 메시지에 "동명 세션 충돌(다른 기기 포함)" 안내 / `cmd_remove`가 `repos_dir().exists()`로 분기해 부재 시 uninstall.sh 위임을 SKIP(영구 WARN 제거) / `cmd_remove`의 "상태 보존" 로그를 `state_path().exists()` 조건부로 정정 — 커밋 `7409c04`·`91aebef`·`3765705`·`a25563a`
 - `tests/test_harnessctl.py` 0.1.14 이월 대응 신규 5개 — `test_preflight_detects_local_session_name_conflict`/`test_preflight_skips_session_conflict_when_already_paired`/`test_verify_no_log_skip_hints_name_collision`/`test_remove_rerun_after_full_removal_has_no_spurious_warn`/`test_remove_state_preserved_log_matches_reality_when_state_never_existed` — 전부 재현 실패 먼저 확인 후 수정(TDD)
+- `~/repo/_discord-harness/codex-discord` `scripts/tui-up.sh` 롤아웃 대기 루프 `find` 경로를 `${CODEX_HOME:-$HOME/.codex}/sessions`로 정정(-3, rollout.mjs/bridge_win.py와 동형) + `test/tui-up.test.sh` 신설(정적 grep 회귀 테스트) — 커밋 `e5392c0`, push 완료. mac 실측은 -2.5 게이트로 이월
