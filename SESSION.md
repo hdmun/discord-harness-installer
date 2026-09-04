@@ -13,6 +13,18 @@
 ## 현재 상태
 <!-- 덮어쓰기. 항상 짧게 — 지금 어디까지 왔는지 스냅샷만 -->
 
+**9/4 재부팅 후 점검 — 코드 무손실, 런타임만 전부 내려감.**
+5레포(installer·codex-discord·folder-bot·discord-multiagent·usage-coach) 전부
+클린·origin 동기화, 미푸시/미저장 없음. PC 종료로 죽은 것: 오케스트레이터·수다
+클로드 봇 세션 2종, 코덱스 브리지 데몬(`data/daemon.pid` 죽음), 코덱스
+TUI(`codex-live` 터미널 부재). 살아있는 것: orca 런타임, schtasks 등록.
+**관측(미조사): schtasks `DiscordHarnessBotWin`이 "등록됨/준비"인데 `마지막 실행
+시간: N/A` — onlogon 트리거가 이번 부팅·로그온에서 한 번도 안 돌았다. RDP
+로그온(`RDP-Tcp#0`)이라 트리거가 안 걸렸을 가능성 — ADR-0002 "자동기동=schtasks
+onlogon" 전제의 두 번째 구멍 후보(첫 번째는 관리자 권한 필요, 2026-08-29 정정).**
+참고: 현재 떠 있는 `codex.exe`는 하네스 TUI가 아니라 사용자가 직접 띄운 별도
+`codex resume` 세션(명령줄 `--dangerously-bypass-approvals-and-sandbox`)이라 무관.
+
 **9/2 세션 4 — 설치기 이월 0.1.14 후보 5건 처리 완료(4수정+1확인스킵), push 완료.**
 ①preflight 동명 세션 충돌 검사(`7409c04` — bots.json 없을 때만, 있으면 자기 세션이라
 오탐 방지) ②verify judge_mcp WARN/FAIL 메시지에 "동명 세션 충돌(다른 기기 포함)"
