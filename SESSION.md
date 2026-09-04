@@ -136,6 +136,15 @@ tower 이관 유지(8/12).
 ## 다음 단계
 <!-- 덮어쓰기. 첫 항목 = 다음 세션이 바로 집어들 일 -->
 
+-5. **[다음 세션 첫 일] 재부팅으로 내려간 하네스 런타임 복구 + 자동기동 미작동 조사** —
+   ①복구: `bot_win.py`(작업 폴더 `C:\Users\hdmun\discord-harness`)로 봇 2종,
+   `bridge_win.py up .env`+`tui-up .env`로 브리지 데몬·코덱스 TUI 재기동 →
+   `harnessctl.py verify --skip-webhook` 전 항목 OK 확인. ②조사: schtasks
+   `DiscordHarnessBotWin`이 등록돼 있는데도 로그온 시 안 돌았다(마지막 실행 N/A).
+   `schtasks /query /v /fo list`로 트리거·조건(전원/네트워크/RDP 세션 조건) 확인 —
+   원인이 확인되면 ADR-0002와 SKILL.md 자동기동 절을 정정할 것. 되돌리기 어려운
+   조작 전에는 사용자에게 보고.
+
 -4. ~~codex-discord C3-a 태그 발행 + pins.json 반영~~ — **2026-09-02 완료**
    (`v0.1.6` 태그, pins 커밋 `97decf5`, push 완료).
 -3.5. ~~Phase 3 — `judge_codex_tui` Windows 지원~~ — **2026-09-02 완료**
