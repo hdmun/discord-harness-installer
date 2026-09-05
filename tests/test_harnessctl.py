@@ -824,12 +824,42 @@ def test_remove_diff_zero_and_preserves_user_data(tmp_path):
 
 def test_remove_warns_on_delegated_uninstall_failure(tmp_path):
     base, work = _installed(tmp_path)
-    coach_uninstall = tmp_path / ".local/share/discord-harness/repos/usage-coach/scripts/uninstall.sh"
-    coach_uninstall.write_text("#!/bin/bash\nexit 1\n", encoding="utf-8")
-    coach_uninstall.chmod(0o755)
+    if sys.platform == "win32":
+        # Windows에서 coach 제거는 dash_win.py remove로 위임된다(bash uninstall.sh 아님)
+        coach_uninstall = tmp_path / ".local/share/discord-harness/repos/usage-coach/scripts/dash_win.py"
+        coach_uninstall.write_text("import sys\nsys.exit(1)\n", encoding="utf-8")
+    else:
+        coach_uninstall = tmp_path / ".local/share/discord-harness/repos/usage-coach/scripts/uninstall.sh"
+        coach_uninstall.write_text("#!/bin/bash\nexit 1\n", encoding="utf-8")
+        coach_uninstall.chmod(0o755)
     r = run(tmp_path, "remove", "--work-dir", str(work))
     assert r.returncode == 0, r.stdout + r.stderr   # 계속 진행 의미론 유지
     assert "[WARN] 제거 스크립트 실패" in r.stdout
+
+def test_remove_delegates_coach_to_dash_win_on_windows(tmp_path):
+    # usage-coach의 uninstall.sh는 macOS launchctl 전용이라 Windows에서 bash로
+    # 돌리면 no-op으로 조용히 성공한다 — schtasks(UsageCoachDashboard)가 안 지워짐.
+    # remove는 dash_win.py remove로 위임해야 한다(install 경로가 이미 쓰는 패턴).
+    if sys.platform != "win32":
+        pytest.skip("dash_win.py 위임은 Windows 전용 경로")
+    base, work = _installed(tmp_path)
+    coach = tmp_path / ".local/share/discord-harness/repos/usage-coach/scripts"
+    marker = tmp_path / "dash_win_called.txt"
+    (coach / "dash_win.py").write_text(
+        "import sys\n"
+        f"open(r'{marker}', 'w', encoding='utf-8').write(' '.join(sys.argv[1:]))\n",
+        encoding="utf-8")
+    bridge_marker = tmp_path / "bridge_uninstall_called.txt"
+    bridge_uninstall = tmp_path / ".local/share/discord-harness/repos/codex-discord/scripts/uninstall.sh"
+    bridge_uninstall.write_text(f"#!/bin/bash\ntouch '{bridge_marker.as_posix()}'\n", encoding="utf-8")
+    coach_bash_marker = tmp_path / "coach_bash_uninstall_called.txt"
+    (coach / "uninstall.sh").write_text(
+        f"#!/bin/bash\ntouch '{coach_bash_marker.as_posix()}'\n", encoding="utf-8")
+    r = run(tmp_path, "remove", "--work-dir", str(work))
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert marker.exists() and marker.read_text(encoding="utf-8") == "remove"
+    assert not coach_bash_marker.exists()  # coach는 더 이상 bash uninstall.sh로 안 감
+    assert bridge_marker.exists()  # bridge_repo() 쪽은 그대로 bash uninstall.sh 유지(범위 밖)
 
 def test_remove_rerun_after_full_removal_has_no_spurious_warn(tmp_path):
     # uninstall.sh 위임분은 소스 저장소를 통째로 지운다(첫 실행) — 재실행에서
