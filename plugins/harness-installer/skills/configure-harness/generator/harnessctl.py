@@ -999,14 +999,29 @@ def cmd_remove(a) -> None:
                 p.unlink()
                 print(f"plist 제거: {p}")
     if repos_dir().exists():
-        for script, cwd in ((bridge_repo() / "scripts/uninstall.sh", bridge_repo()),
-                            (coach_repo() / "scripts/uninstall.sh", coach_repo())):
+        if IS_WIN:
+            dash_script = coach_repo() / "scripts/dash_win.py"
+            if dash_script.exists():
+                r = subprocess.run([sys.executable, dash_script.as_posix(), "remove"], cwd=coach_repo())
+                if r.returncode != 0:
+                    warn(f"제거 스크립트 실패(exit {r.returncode}): {dash_script} — 수동 확인 필요")
+            else:
+                warn(f"제거 스크립트 없음(수동 확인 필요): {dash_script}")
+        else:
+            script = coach_repo() / "scripts/uninstall.sh"
             if script.exists():
-                r = subprocess.run([bash_bin(), script.as_posix()], cwd=cwd)  # MSYS 백슬래시 파싱 회피
+                r = subprocess.run([bash_bin(), script.as_posix()], cwd=coach_repo())  # MSYS 백슬래시 파싱 회피
                 if r.returncode != 0:
                     warn(f"제거 스크립트 실패(exit {r.returncode}): {script} — 수동 확인 필요")
             else:
                 warn(f"제거 스크립트 없음(수동 확인 필요): {script}")
+        script = bridge_repo() / "scripts/uninstall.sh"
+        if script.exists():
+            r = subprocess.run([bash_bin(), script.as_posix()], cwd=bridge_repo())  # MSYS 백슬래시 파싱 회피
+            if r.returncode != 0:
+                warn(f"제거 스크립트 실패(exit {r.returncode}): {script} — 수동 확인 필요")
+        else:
+            warn(f"제거 스크립트 없음(수동 확인 필요): {script}")
     else:
         # 소스 저장소 자체가 없다 — 이미 제거됐거나 fetch 미실행. 위임할 uninstall.sh가
         # 존재할 수 없는 정상 상태라 WARN이 아니다(9/2 이월 ④, 재실행 시 영구 WARN 버그).
