@@ -13,17 +13,62 @@
 ## 현재 상태
 <!-- 덮어쓰기. 항상 짧게 — 지금 어디까지 왔는지 스냅샷만 -->
 
-**9/4 재부팅 후 점검 — 코드 무손실, 런타임만 전부 내려감.**
-5레포(installer·codex-discord·folder-bot·discord-multiagent·usage-coach) 전부
-클린·origin 동기화, 미푸시/미저장 없음. PC 종료로 죽은 것: 오케스트레이터·수다
-클로드 봇 세션 2종, 코덱스 브리지 데몬(`data/daemon.pid` 죽음), 코덱스
-TUI(`codex-live` 터미널 부재). 살아있는 것: orca 런타임, schtasks 등록.
-**관측(미조사): schtasks `DiscordHarnessBotWin`이 "등록됨/준비"인데 `마지막 실행
-시간: N/A` — onlogon 트리거가 이번 부팅·로그온에서 한 번도 안 돌았다. RDP
-로그온(`RDP-Tcp#0`)이라 트리거가 안 걸렸을 가능성 — ADR-0002 "자동기동=schtasks
-onlogon" 전제의 두 번째 구멍 후보(첫 번째는 관리자 권한 필요, 2026-08-29 정정).**
+**9/12 세션 — schtasks 원인 확정·수정·검증 완료. discord-multiagent 레포
+`0c22b10`(push 완료).**
+재부팅(9/11) 후 확인: 이번엔 트리거가 실제 발동(`TaskScheduler/Operational`
+로그 Id 100/129/200/201/102, 프로세스 PID 5016 생성) — 9/4에 활성화해둔 로그
+덕에 확보. 근데 반환 코드 `2147942401`(0x80070001=ERROR_INVALID_FUNCTION)로
+실패. **근본 원인**: `pythonw.exe`(콘솔 없는 GUI 서브시스템, `pythonw_bin()`이
+onlogon 무인 실행에 고름)로 실행되면 표준 입출력이 전혀 연결 안 돼
+`sys.stdout`/`stderr`가 `None`(파이썬 공식 동작) — `bot_win.py` 모듈 최상단이
+무조건 `sys.stdout.reconfigure(...)`를 호출해 `AttributeError`로 즉시 죽음.
+`Start-Process`로 리다이렉트 유무만 바꿔 대조(무연결→exit 1, 파일 리다이렉트→
+exit 0)해 확정. **흥미로운 발견**: 9/6에 이미 다른 세션이 같은 버그를 감지해
+`cmd_autostart_boot` 함수 안에 로그파일 리다이렉트를 넣었었다(discord-multiagent
+`0026826`) — 근데 그 위치는 모듈 최상단 크래시 지점보다 늦게 실행돼 무효했고,
+그래서 9/11·9/12에도 재발했다. 오늘 최상단 자체를 가드하는 진짜 수정 추가
+(`0c22b10`, stdout/stderr가 None이면
+`~/.local/share/discord-harness/bot_win_pythonw.log`로 대체) — TDD로
+`test/test_bot_win_pythonw.py` 신설(DETACHED_PROCESS로 실제 pythonw.exe 재현),
+전체 스위트 10 passed/9 skipped(bash판, Windows 정상). work_dir·repos_dir에
+배포 후 `schtasks /run`으로 실기동 재검증 — **마지막 결과: 0** 확정.
+**결론**: "RDP 로그온 트리거 안 걸림" 가설도 "관리자 권한" 가설도 아니고 순수
+코드 버그였음 — ADR-0002(자동기동=schtasks onlogon 전제)는 정정 불필요.
+**남은 것**: discord-multiagent `0c22b10`·`0026826` 둘 다 origin/main 반영
+확인(2026-09-19). C3-a 태그·pins.json
+범프는 정책상 mac 게이트 별도 판단 필요.
+
+**9/4 세션 — 런타임 복구 완료, schtasks 미작동 원인은 관측 걸어둔 채 미확정.**
+①복구: `bot_win.py autostart-boot`로 오케스트레이터·수다 클로드 orca 터미널
+재기동, `bridge_win.py up .env`+`tui-up .env`로 코덱스 브리지 데몬·TUI 재기동.
+오케스트레이터는 최초 예열 실패(FAIL: MCP 서버 프로세스 없음) → `bot_win.py
+restart orchestrator` 1회로 해소. `harnessctl.py verify --skip-webhook --wait`
+전 항목 OK(제미나이 FAIL/WARN은 이 Windows 로컬 환경엔 애초 미구성 대상 —
+bots.json에 없음, Hostinger VPS 전용 봇이라 정상 무시).
+②schtasks 조사: "RDP 로그온이라 트리거 안 걸림" 가설은 **반증됨** —
+`TerminalServices-LocalSessionManager` 이벤트 로그(Id 21)에 이번 부팅 후
+8:16:22 콘솔 로그온이 실제 기록돼 있는데도 태스크 `마지막 실행 시간`은 N/A
+그대로. 태스크 XML 확인 결과 LogonTrigger는 특정 사용자 미지정(모든 사용자
+대상)·`LogonType=InteractiveToken`, 배터리 조건은 이 기기가 데스크탑(배터리
+없음)이라 무관 — 둘 다 원인 아님으로 소거. `TaskScheduler/Operational` 로그가
+기본 비활성이라 "트리거 미발동 vs 발동했으나 액션 실패"를 구분할 증거가 없어
+막힘 → **관리자 권한으로 `wevtutil sl "Microsoft-Windows-TaskScheduler/
+Operational" /e:true` 실행, 로그 활성화 확인 완료(2026-09-04)**. 원인 확정은
+다음 재부팅 때 이 로그로 가능 — 그 전엔 ADR-0002·SKILL.md 정정 보류.
 참고: 현재 떠 있는 `codex.exe`는 하네스 TUI가 아니라 사용자가 직접 띄운 별도
 `codex resume` 세션(명령줄 `--dangerously-bypass-approvals-and-sandbox`)이라 무관.
+참고: git-bash(MSYS)에서 `wevtutil`·`schtasks`의 `/e:true`·`/tn` 같은 슬래시
+인자는 경로로 오변환돼 깨진다 — `MSYS_NO_PATHCONV=1` 접두 또는 `//` 이중 슬래시로
+우회(2026-09-04 실측, 둘 다 검증됨).
+③드리프트 발견·정정: 설치본(`~/.local/share/discord-harness/repos/`) 점검 중
+discord-multiagent는 실행 파일(work_dir `scripts/bot_win.py`)이 이미 확정 태그
+`v0.1.2`(=개발 HEAD `474c9fb`)와 동일해 문제없었으나, codex-discord는 repos_dir
+clone이 `445e5e1`(pins.json 정본 태그 `v0.1.6`=`73f1ed2`보다 구버전)에 멈춰
+있었음 — 정식 fetch 재실행 없이 지난 세션들이 실측만 반복한 탓. `bridge_win.py
+stop` → `git checkout v0.1.6` → `up`+`tui-up` 순으로 정정, verify 재확인
+OK(package.json 변경 없어 npm install 불필요). **일반화**: work_dir 오버레이
+파일과 repos_dir clone은 각각 따로 드리프트될 수 있다 — 다음 정식 `harnessctl.py
+fetch` 재실행 시 pins.json 태그로 자동 정렬됨.
 
 **9/2 세션 4 — 설치기 이월 0.1.14 후보 5건 처리 완료(4수정+1확인스킵), push 완료.**
 ①preflight 동명 세션 충돌 검사(`7409c04` — bots.json 없을 때만, 있으면 자기 세션이라
@@ -136,14 +181,13 @@ tower 이관 유지(8/12).
 ## 다음 단계
 <!-- 덮어쓰기. 첫 항목 = 다음 세션이 바로 집어들 일 -->
 
--5. **[다음 세션 첫 일] 재부팅으로 내려간 하네스 런타임 복구 + 자동기동 미작동 조사** —
-   ①복구: `bot_win.py`(작업 폴더 `C:\Users\hdmun\discord-harness`)로 봇 2종,
-   `bridge_win.py up .env`+`tui-up .env`로 브리지 데몬·코덱스 TUI 재기동 →
-   `harnessctl.py verify --skip-webhook` 전 항목 OK 확인. ②조사: schtasks
-   `DiscordHarnessBotWin`이 등록돼 있는데도 로그온 시 안 돌았다(마지막 실행 N/A).
-   `schtasks /query /v /fo list`로 트리거·조건(전원/네트워크/RDP 세션 조건) 확인 —
-   원인이 확인되면 ADR-0002와 SKILL.md 자동기동 절을 정정할 것. 되돌리기 어려운
-   조작 전에는 사용자에게 보고.
+-5. ~~재부팅으로 내려간 하네스 런타임 복구~~ — **2026-09-04 완료**(verify 전
+   항목 OK).
+-5.5. ~~schtasks 미작동 원인 확정~~ — **2026-09-12 완료**(pythonw.exe stdout=None
+   크래시, discord-multiagent `0c22b10` — 상세는 위 현재 상태 "9/12 세션" 절).
+   push 완료(2026-09-12). ADR-0002는 정정 불필요로 판정 완료(원인이 schtasks
+   설정이 아니라 코드 버그였음). **다음 세션은 SESSION.md 다음 단계에서 그다음
+   항목부터.**
 
 -4. ~~codex-discord C3-a 태그 발행 + pins.json 반영~~ — **2026-09-02 완료**
    (`v0.1.6` 태그, pins 커밋 `97decf5`, push 완료).
@@ -184,10 +228,15 @@ tower 이관 유지(8/12).
    "16장→스킬 1개" 서사에서 포탈 수동 단계 잔존 경계선 확인
 2. ~~설치기 차기 이월(0.1.14 후보)~~ — **2026-09-02 완료**(세션 4, 4수정+1확인스킵).
    상세는 위 현재 상태 절 참고.
-5. folder-bot 차기 이월: ①botctl stop을 /exit 정상 종료 방식으로(현 kill-session은
-   유령 리스 생성 — 8/6 원인 격리) ②doctor MCP 판정 sessionId 기준 구분(8/6 완화만
-   반영) ③eams 무조건 주입 여부 + 미신뢰 폴더 재현 실험(ct-reply §3.17)
-   ④봇 세션 수동 재기동 UX — 맨 claude 기동 오용 감지/안내(8/6 실사용 사고)
+5. ~~folder-bot 차기 이월~~ — **2026-09-12 완료**(새 orca 워커에 위임, main에
+   merge·push 완료: `f64822c`). ①botctl stop을 /exit 정상 종료로(`da5841e`)
+   ②doctor MCP 판정을 started_at 신선도로 이전 세션 로그 배제(`40033c5`)
+   ③eams 무조건 주입 재현 실험 — 결함 없음 확인(`c031026`) ④doctor의 세션 없음
+   보고에 올바른 재기동 경로 상시 안내(`24b49f8`). Windows 테스트 23 passed
+   (`tests/test_botctl_win.py`). 참고: 워커가 브리프("로컬 커밋까지만") 위반하고
+   원격에 직접 push했었음(재부팅으로 워크트리 소멸 전 안전 차원으로 추정) —
+   병합 시 회귀 없음(main 대조로 pre-existing 실패 10건과 동일함 확인) 재검증 후
+   진행.
 6. 차기 이월분 기록 유지: #18/#19/#20/#21/#25(remove 품질)·#16(brew prefix 검사)·
    bot-up 락 240s 증폭(상류)·"수다 봇 폴더 하위 분리"는 d10e6f9로 해소됨
 7. **[약속] 대시보드에 봇·폴더·채널 매핑 표시** — bagbio1748님 블랙박스화 우려에 "다음 업데이트 후보로 적어두겠다" 공개 답변(2026-08-24, 채널 1519510111083561021 답글 1541256639401820301). bots.json 정본을 대시보드에 노출하는 방향
@@ -382,3 +431,13 @@ tower 이관 유지(8/12).
 - `plugins/harness-installer/skills/configure-harness/generator/harnessctl.py` 0.1.14 이월 ①②④⑤ — `cmd_preflight`에 동명 세션 충돌 검사(`load_bots_json`/`default_session_name`/`session_procs` 조합, 미페어링 한정) 추가 / `judge_mcp`의 WARN·FAIL 메시지에 "동명 세션 충돌(다른 기기 포함)" 안내 / `cmd_remove`가 `repos_dir().exists()`로 분기해 부재 시 uninstall.sh 위임을 SKIP(영구 WARN 제거) / `cmd_remove`의 "상태 보존" 로그를 `state_path().exists()` 조건부로 정정 — 커밋 `7409c04`·`91aebef`·`3765705`·`a25563a`
 - `tests/test_harnessctl.py` 0.1.14 이월 대응 신규 5개 — `test_preflight_detects_local_session_name_conflict`/`test_preflight_skips_session_conflict_when_already_paired`/`test_verify_no_log_skip_hints_name_collision`/`test_remove_rerun_after_full_removal_has_no_spurious_warn`/`test_remove_state_preserved_log_matches_reality_when_state_never_existed` — 전부 재현 실패 먼저 확인 후 수정(TDD)
 - `~/repo/_discord-harness/codex-discord` `scripts/tui-up.sh` 롤아웃 대기 루프 `find` 경로를 `${CODEX_HOME:-$HOME/.codex}/sessions`로 정정(-3, rollout.mjs/bridge_win.py와 동형) + `test/tui-up.test.sh` 신설(정적 grep 회귀 테스트) — 커밋 `e5392c0`, push 완료. mac 실측은 -2.5 게이트로 이월
+- 9/4 런타임 복구 실측 경로 정리(코드 변경 없음, 다음 재부팅 대비 참고용) — 설치
+  루트 `~/.config/discord-harness/state.json`(work_dir 기록), 실제 clone 위치
+  `~/.local/share/discord-harness/repos/{codex-discord,discord-multiagent,usage-coach}`
+  (`harnessctl.py repos_dir()`), 브리지 데몬 `codex-discord/data/daemon.pid`,
+  코덱스 TUI 대기 로그 `codex-discord/logs/daemon.log`. `bot_win.py up <name>`은
+  orca 터미널 안에서 도는 전제라 bash 직접 호출 시 TTY 없어 `--print` 오작동
+  (claude CLI가 비TTY stdin을 헤드리스로 오인) — 대신 `restart`/`autostart-boot`
+  써야 orca_terminal_create 경유로 정상 기동(2026-09-04 실측)
+- 관리자 권한으로 `wevtutil sl "Microsoft-Windows-TaskScheduler/Operational" /e:true` 실행 — `Microsoft-Windows-TaskScheduler/Operational` 이벤트 로그 활성화(코드 변경 아님, 이 PC의 OS 설정) — 다음 재부팅 후 schtasks 트리거 발동 여부 확정용
+- `~/repo/_discord-harness/discord-multiagent` `scripts/bot_win.py` 모듈 최상단 — `sys.stdout`/`stderr`가 `None`(pythonw.exe 콘솔 없음)이면 `~/.local/share/discord-harness/bot_win_pythonw.log`로 대체(기존 `sys.stdout.reconfigure()` 무조건 호출이 크래시 지점이었음) + `test/test_bot_win_pythonw.py` 신설(DETACHED_PROCESS로 실제 pythonw.exe 재현) — 커밋 `0c22b10`, push 완료(2026-09-12, `474c9fb..0c22b10`). work_dir(`C:\Users\hdmun\discord-harness\scripts\bot_win.py`)·repos_dir 설치본에도 배포 완료, `schtasks /run`으로 실기동 재검증(마지막 결과 0)
